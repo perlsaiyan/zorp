@@ -225,3 +225,62 @@ func TestReaderOpensAndPages(t *testing.T) {
 		t.Error("q should close the reader, not quit")
 	}
 }
+
+func TestMovePicker(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	press(m, "m")
+	if m.picker == nil {
+		t.Fatal("m should open the picker")
+	}
+	if len(m.picker.matches) != len(m.folders)-1 {
+		t.Errorf("picker should list every folder but the current one: %d of %d", len(m.picker.matches), len(m.folders))
+	}
+	press(m, "z", "b") // fuzzy: Zebra
+	if len(m.picker.matches) != 1 || m.picker.matches[0].Name != "Zebra" {
+		t.Fatalf("filter 'zb' = %+v", m.picker.matches)
+	}
+	// The view must still fit while the picker is open.
+	for i, l := range strings.Split(m.View().Content, "\n") {
+		if w := ansi.StringWidth(l); w != 100 {
+			t.Errorf("line %d width %d", i, w)
+		}
+	}
+	press(m, "backspace", "backspace", "x", "y", "q")
+	if m.picker == nil || len(m.picker.matches) != 0 {
+		t.Error("typing q in the picker should filter, not quit")
+	}
+	press(m, "esc")
+	if m.picker != nil {
+		t.Error("esc should close the picker")
+	}
+	press(m, "m", "z")
+	if cmd := m.handleKey("enter"); cmd == nil || m.picker != nil {
+		t.Error("enter should close the picker and send a move")
+	}
+}
+
+func TestActionKeysProduceCommands(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 20})
+	for _, k := range []string{"u", "f", "d", "a"} {
+		if cmd := m.handleKey(k); cmd == nil {
+			t.Errorf("%s produced no command", k)
+		}
+	}
+	// Opening an unread message marks it read; opening a read one doesn't.
+	m.msgCur = 1 // m49: unread (49 % 3 != 0)
+	if cmd := m.handleKey("enter"); cmd == nil {
+		t.Error("opening an unread message should mark it read")
+	}
+	m.reading = false
+	m.msgCur = 2 // m48: read
+	if cmd := m.handleKey("enter"); cmd != nil {
+		t.Error("opening a read message shouldn't send anything")
+	}
+	// In the folder pane these keys don't act on messages.
+	m.reading, m.focus = false, paneFolders
+	if cmd, ok := m.actionKey("d"); ok || cmd != nil {
+		t.Error("d in the folder pane should not delete")
+	}
+}

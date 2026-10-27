@@ -15,11 +15,10 @@ import (
 	"github.com/tom/zorp/config"
 )
 
-// Scopes requested so far. Kept minimal on purpose: the first consent prompt
-// in the work tenant should ask for as little as possible. Mail.ReadWrite and
-// Mail.Send are added when the features that need them land. MSAL adds
-// openid, profile and offline_access itself.
-var Scopes = []string{"User.Read", "Mail.Read"}
+// Scopes requested so far. Kept to what shipped features need, so each
+// consent request in the work tenant is as small as possible. Mail.Send is
+// added when sending lands. MSAL adds openid, profile and offline_access itself.
+var Scopes = []string{"User.Read", "Mail.Read", "Mail.ReadWrite"}
 
 // ErrNeedsLogin means there is no usable cached sign-in; run `zorp login`.
 var ErrNeedsLogin = errors.New("not signed in (run `zorp login`)")
@@ -128,6 +127,20 @@ func (a *Authenticator) Token(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%w: %v", ErrNeedsLogin, Explain(err))
 	}
 	return res.AccessToken, nil
+}
+
+// GrantedScopes returns the scopes on a current access token, as Entra
+// reports them (e.g. "Mail.ReadWrite").
+func (a *Authenticator) GrantedScopes(ctx context.Context) ([]string, error) {
+	acct, err := a.Account(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res, err := a.client.AcquireTokenSilent(ctx, Scopes, public.WithSilentAccount(acct))
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrNeedsLogin, Explain(err))
+	}
+	return res.GrantedScopes, nil
 }
 
 // Logout forgets all cached accounts and deletes the token cache.

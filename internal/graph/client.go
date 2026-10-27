@@ -60,6 +60,17 @@ func (e *Error) Error() string {
 
 const maxAttempts = 5
 
+// IsPermanent reports whether retrying err can't help: a 4xx response other
+// than throttling or a timeout. Network errors, 5xx and 429 are transient.
+func IsPermanent(err error) bool {
+	var gerr *Error
+	if !errors.As(err, &gerr) {
+		return false
+	}
+	return gerr.Status >= 400 && gerr.Status < 500 &&
+		gerr.Status != http.StatusTooManyRequests && gerr.Status != http.StatusRequestTimeout
+}
+
 // IsNotFound reports whether err is a Graph 404.
 func IsNotFound(err error) bool {
 	var gerr *Error
@@ -76,6 +87,11 @@ func (c *Client) get(ctx context.Context, path string, v any, prefer ...string) 
 // post sends body as JSON to path and decodes the JSON response into v.
 func (c *Client) post(ctx context.Context, path string, body, v any, prefer ...string) error {
 	return c.do(ctx, http.MethodPost, path, body, v, prefer...)
+}
+
+// patch sends body as JSON to path with PATCH.
+func (c *Client) patch(ctx context.Context, path string, body, v any) error {
+	return c.do(ctx, http.MethodPatch, path, body, v)
 }
 
 // do performs a request, retrying 429 (honoring Retry-After), 5xx, and
@@ -151,6 +167,9 @@ func (c *Client) attempt(ctx context.Context, method, url string, payload []byte
 	defer resp.Body.Close()
 
 	if resp.StatusCode/100 == 2 {
+		if v == nil || resp.StatusCode == http.StatusNoContent {
+			return 0, nil
+		}
 		return 0, json.NewDecoder(resp.Body).Decode(v)
 	}
 

@@ -63,7 +63,8 @@ type Model struct {
 	showFolders bool
 	reading     bool // full-screen message view
 	help        bool
-	gPending    bool // saw "g", waiting for the folder letter
+	picker      *picker // move-to-folder chooser, when open
+	gPending    bool    // saw "g", waiting for the folder letter
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -268,6 +269,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errText = "login: " + msg.err.Error()
 		}
 		return m, nil
+
+	case mutateDoneMsg:
+		if msg.err != nil {
+			m.errText = msg.err.Error()
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -278,6 +285,11 @@ func (m *Model) handleEvent(ev ipc.Event) tea.Cmd {
 		var st ipc.Status
 		if json.Unmarshal(ev.Data, &st) == nil {
 			m.status = st
+		}
+	case ipc.EventError:
+		var e ipc.ErrorEvent
+		if json.Unmarshal(ev.Data, &e) == nil {
+			m.errText = e.Message
 		}
 	case ipc.EventChanged:
 		keep := ""
@@ -310,6 +322,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		m.help = false
 		return nil
 	}
+	if m.picker != nil {
+		return m.pickerKey(key)
+	}
 
 	if m.gPending {
 		m.gPending = false
@@ -328,6 +343,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		return nil
 	}
 
+	if cmd, ok := m.actionKey(key); ok {
+		return cmd
+	}
 	if m.reading {
 		return m.readerKey(key)
 	}
@@ -432,6 +450,7 @@ func (m *Model) listKey(key string) tea.Cmd {
 		if _, ok := m.currentMessage(); ok {
 			m.reading = true
 			m.refreshPreview(true)
+			return m.markRead()
 		}
 	case "h", "left":
 		if m.showFolders {
@@ -447,9 +466,9 @@ func (m *Model) readerKey(key string) tea.Cmd {
 		m.reading = false
 		m.refreshPreview(false)
 	case "n", "J":
-		return m.moveMessage(1)
+		return tea.Batch(m.moveMessage(1), m.markRead())
 	case "p", "K":
-		return m.moveMessage(-1)
+		return tea.Batch(m.moveMessage(-1), m.markRead())
 	case "?":
 		m.help = true
 	default:
@@ -477,6 +496,52 @@ func (m *Model) scrollKey(key string) {
 	case "end", "G":
 		m.preview.GotoBottom()
 	}
+}
+
+// actionKey handles keys that change messages; they work in the list,
+// preview and reader alike.
+func (m *Model) actionKey(key string) (tea.Cmd, bool) {
+	if m.focus == paneFolders && !m.reading {
+		return nil, false
+	}
+	msg, ok := m.currentMessage()
+	if !ok {
+		return nil, false
+	}
+	one := func(op string) tea.Cmd {
+		return mutateCmd(m.cfg, ipc.MutateParams{Op: op, GraphIDs: []string{msg.GraphID}})
+	}
+	switch key {
+	case "u":
+		if msg.IsRead {
+			return one(ipc.OpUnread), true
+		}
+		return one(ipc.OpRead), true
+	case "f":
+		if msg.Flagged {
+			return one(ipc.OpUnflag), true
+		}
+		return one(ipc.OpFlag), true
+	case "d":
+		return one(ipc.OpDelete), true
+	case "a":
+		return one(ipc.OpArchive), true
+	case "m":
+		m.openPicker()
+		return nil, true
+	}
+	return nil, false
+}
+
+// markRead marks the message under the cursor read, as opening it does in
+// most mail clients. The cursor may have just moved, so it reads the
+// current message rather than taking one.
+func (m *Model) markRead() tea.Cmd {
+	msg, ok := m.currentMessage()
+	if !ok || msg.IsRead {
+		return nil
+	}
+	return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpRead, GraphIDs: []string{msg.GraphID}})
 }
 
 // waitNext keeps listening for daemon events after handling one.

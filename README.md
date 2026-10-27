@@ -2,7 +2,7 @@
 
 A fast, keyboard-driven terminal mail client for Microsoft 365, talking to Microsoft Graph directly (no IMAP). See [PLAN.md](PLAN.md) for the full design.
 
-**Status:** milestone 3 (read-only TUI). You can browse and read mail; actions (delete, move, reply, ...) come next.
+**Status:** milestone 4 (actions). Read/unread, flag, delete, archive and move work, in safe mode by default (see below). Reply, compose and search come next.
 
 ## Build
 
@@ -30,9 +30,9 @@ client_id = "00000000-0000-0000-0000-000000000000"
 tenant = "organizations"   # any work/school account; or your org's tenant ID
 ```
 
-5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
+5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
 
-zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. `Mail.ReadWrite`, `Mail.Send` and `MailboxSettings.Read` will be added to that list, and requested, by later milestones.
+zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. `Mail.Send` and `MailboxSettings.Read` will be added to that list, and requested, by later milestones.
 
 ## Signing in
 
@@ -58,9 +58,16 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `g` then `i`/`s`/`d`/`a` | go to Inbox, Sent, Drafts, Archive |
 | `w` | preview on the right, at the bottom, or hidden |
 | `b` | show/hide the folder pane |
+| `u` | toggle read / unread |
+| `f` | toggle flag |
+| `d` | delete (moves to Deleted Items) |
+| `a` | archive |
+| `m` | move to a folder (type to filter, Enter to move) |
 | `Ctrl+R` | sync now |
 | `L` | log in again when the session has expired |
 | `q` | back / quit |
+
+Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
 
 Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
 
@@ -71,9 +78,10 @@ A background daemon keeps a local SQLite cache (`~/.local/share/zorp/zorp.db`) i
 ```sh
 zorp sync             # sync now and print counts
 zorp sync --full      # discard the cache and rebuild it
+zorp daemon start     # start it in the background (zorp and zorp sync do this for you)
 zorp daemon status    # state, pid, last sync, last error
 zorp daemon stop
-zorp daemon           # run in the foreground, logging to stderr
+zorp daemon           # run in the foreground, logging to stderr (for systemd or debugging)
 ```
 
 Sync settings in `config.toml` (defaults shown):
@@ -86,6 +94,18 @@ folders = ["inbox", "sentitems", "drafts", "archive"]  # well-known names (inbox
 prefetch_bodies = 500   # download bodies of the newest N messages in the background; older ones load when opened
 ```
 
+## Safe mode
+
+While zorp is new, it starts in **safe mode**: deletes are refused, and moves (including archive) are only allowed into a scratch folder. Read/unread and flag always work. Create a folder called `zorp-test` in Outlook to try moves. When you trust it:
+
+```toml
+[safety]
+safe_mode = false           # default true
+scratch_folder = "zorp-test"
+```
+
+Restart the daemon (`zorp daemon stop`) after changing this.
+
 ## Admin consent
 
 The first time you sign in with a work account, your organization decides whether you may consent to zorp yourself. If you may, the sign-in shows a **Permissions requested** screen; click **Accept** and you're done. Many tenants only allow user consent for apps from verified publishers, which a personal registration is not. If you see **"Need admin approval"** (or `zorp login` reports `AADSTS65001`, `AADSTS90094` or `AADSTS90095`), ask IT to grant consent. If the screen offers **Request approval**, use it; admins see it under **Enterprise applications → Admin consent requests**. Otherwise, send them:
@@ -93,7 +113,7 @@ The first time you sign in with a work account, your organization decides whethe
 - **App name:** zorp
 - **Application (client) ID:** your `client_id`
 - **Type:** public client (no secret), delegated permissions only, signs in as you
-- **Delegated permissions:** `User.Read`, `Mail.Read`, `offline_access` now; later `Mail.ReadWrite`, `Mail.Send`, `MailboxSettings.Read`
+- **Delegated permissions:** `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `offline_access` now; later `Mail.Send`, `MailboxSettings.Read`
 - **How to grant:** Entra admin center → Enterprise applications → zorp → Permissions → Grant admin consent (the app appears there after your first sign-in attempt), or open `https://login.microsoftonline.com/<tenant-id>/adminconsent?client_id=<client_id>` as an admin
 
 If sign-in is blocked by Conditional Access (`AADSTS53003`), try `zorp login --browser`; device code flow is commonly blocked while browser sign-in is allowed.

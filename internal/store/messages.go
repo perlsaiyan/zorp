@@ -46,13 +46,26 @@ type DeltaBatch struct {
 //
 // Upserts are keyed on the immutable graph ID, so a message that moved
 // between folders updates its existing row (including folder_id) rather than
-// duplicating. A removal only deletes the row if it is still in folderID: if
-// the destination folder's delta already moved it, the removal is stale.
+// duplicating. Each upserted message then has its queued outbox ops
+// re-applied, so server state that predates a local change doesn't undo it.
+//
+// A removal only deletes the row if it is still in folderID: if the
+// destination folder's delta (or a pending local move) already put it
+// elsewhere, the removal is stale.
 func (s *Store) ApplyDelta(ctx context.Context, accountID, folderID int64, b DeltaBatch) error {
 	return s.inTx(ctx, func(tx *sql.Tx) error {
+		pending, err := hasPendingOps(ctx, tx, accountID)
+		if err != nil {
+			return err
+		}
 		for _, m := range b.Upserts {
 			if err := upsertMessage(ctx, tx, accountID, folderID, m); err != nil {
 				return err
+			}
+			if pending {
+				if err := rebase(ctx, tx, accountID, m.GraphID); err != nil {
+					return err
+				}
 			}
 		}
 		for _, gid := range b.Removed {
@@ -98,11 +111,16 @@ func upsertMessage(ctx context.Context, tx *sql.Tx, accountID, folderID int64, m
 // PruneFolder deletes messages in folderID received at or after since whose
 // graph IDs are not in keep. It finishes a from-scratch sync pass, removing
 // rows for messages that disappeared while the folder had no valid delta link.
-// Messages older than since were outside the pass's window and are left alone.
+// Messages older than since were outside the pass's window and are left alone,
+// as are messages with queued ops (e.g. moved here locally, not yet on the server).
 func (s *Store) PruneFolder(ctx context.Context, folderID int64, since time.Time, keep map[string]bool) (int, error) {
 	removed := 0
 	err := s.inTx(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `SELECT graph_id FROM messages WHERE folder_id = ? AND received_at >= ?`, folderID, since.Unix())
+		rows, err := tx.QueryContext(ctx, `
+			SELECT graph_id FROM messages m
+			WHERE folder_id = ? AND received_at >= ?
+			AND NOT EXISTS (SELECT 1 FROM outbox o WHERE o.account_id = m.account_id AND o.message_graph_id = m.graph_id)`,
+			folderID, since.Unix())
 		if err != nil {
 			return err
 		}

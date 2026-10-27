@@ -34,8 +34,9 @@ commands:
   whoami                         show the signed-in user (calls Graph /me)
   probe                          list the 10 newest Inbox messages (auth go/no-go check)
   sync [--full]                  sync now via the daemon (starting it if needed); --full rebuilds the cache
-  daemon                         run the sync daemon in the foreground
+  daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
+  daemon                         run the sync daemon in the foreground (for systemd or debugging)
 `
 
 func main() {
@@ -246,6 +247,18 @@ func runDaemon(ctx context.Context, args []string) error {
 	case "":
 		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 		return daemon.Run(ctx, cfg, log)
+	case "start":
+		c, err := daemon.Connect(ctx, cfg, true)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		var st ipc.Status
+		if err := c.Call(ctx, ipc.MethodStatus, nil, &st); err != nil {
+			return err
+		}
+		fmt.Printf("Daemon running (pid %d), logging to %s\n", st.PID, cfg.Paths.DaemonLog)
+		return nil
 	case "status", "stop":
 		c, err := daemon.Connect(ctx, cfg, false)
 		if err != nil {
@@ -333,7 +346,20 @@ func runProbe(ctx context.Context) error {
 		fmt.Println("FAIL")
 		return err
 	}
-	fmt.Printf("ok: %d messages\n\n", len(msgs))
+	fmt.Printf("ok: %d messages\n", len(msgs))
+
+	fmt.Print("4. Write access (Mail.ReadWrite) ")
+	scopes, err := a.GrantedScopes(ctx)
+	if err != nil {
+		fmt.Println("FAIL")
+		return err
+	}
+	if !hasScope(scopes, "Mail.ReadWrite") {
+		fmt.Println("MISSING")
+		return fmt.Errorf("token lacks Mail.ReadWrite (granted: %s); add it to the app registration and grant consent", strings.Join(scopes, " "))
+	}
+	fmt.Println("ok")
+	fmt.Println()
 
 	for _, m := range msgs {
 		mark := " "
@@ -351,6 +377,16 @@ func runProbe(ctx context.Context) error {
 	}
 	fmt.Println("\nAuth go/no-go: GO")
 	return nil
+}
+
+func hasScope(scopes []string, want string) bool {
+	for _, s := range scopes {
+		// Entra may report scopes with or without the resource prefix.
+		if strings.EqualFold(s, want) || strings.HasSuffix(strings.ToLower(s), "/"+strings.ToLower(want)) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncate(s string, n int) string {

@@ -152,6 +152,8 @@ func (m *Model) View() tea.View {
 	switch {
 	case m.help:
 		lines = append(lines, padLines(helpLines(), m.width, g.bodyH)...)
+	case m.picker != nil:
+		lines = append(lines, m.pickerLines(m.width, g.bodyH)...)
 	case m.reading:
 		lines = append(lines, padLines(strings.Split(m.preview.View(), "\n"), m.width, g.bodyH)...)
 	default:
@@ -320,6 +322,12 @@ func (m *Model) topBar() string {
 		left += fmt.Sprintf("  │  message %d of %d", m.msgCur+1, len(m.msgs))
 	}
 	right := m.syncState() + " "
+	if m.status.Pending > 0 {
+		right = fmt.Sprintf("%d pending  ", m.status.Pending) + right
+	}
+	if m.status.SafeMode {
+		right = "SAFE MODE  " + right
+	}
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 1 {
 		return styleBar.Render(fit(left, m.width))
@@ -358,8 +366,10 @@ func (m *Model) bottomBar() string {
 	switch {
 	case m.help:
 		hints = "any key: close help"
+	case m.picker != nil:
+		hints = "type to filter  ↑/↓ choose  enter move  esc cancel"
 	case m.reading:
-		hints = "j/k scroll  space/- page  n/p next/prev  q back  ? help"
+		hints = "j/k scroll  space/- page  n/p next/prev  u unread  f flag  d delete  a archive  m move  q back"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
 	case m.focus == paneFolders:
@@ -367,7 +377,7 @@ func (m *Model) bottomBar() string {
 	case m.focus == panePreview:
 		hints = "j/k scroll  space/- page  tab pane  w layout  ? help  q quit"
 	default:
-		hints = "j/k move  ⏎ open  tab pane  g i/s/d/a folder  w layout  ^r sync  ? help  q quit"
+		hints = "j/k move  ⏎ open  u read/unread  f flag  d delete  a archive  m move  g i/s/d/a folder  ? help  q quit"
 	}
 	return styleFaint.Render(fit(" "+hints, m.width))
 }
@@ -375,7 +385,7 @@ func (m *Model) bottomBar() string {
 func helpLines() []string {
 	return []string{
 		"",
-		"  zorp keys (read-only for now)",
+		"  zorp keys",
 		"",
 		"  Anywhere",
 		"    tab / shift+tab   next / previous pane",
@@ -387,12 +397,19 @@ func helpLines() []string {
 		"    ?                 this help",
 		"    q                 back / quit",
 		"",
+		"  Messages (list, preview or reader)",
+		"    u                 toggle read / unread",
+		"    f                 toggle flag",
+		"    d                 delete (moves to Deleted Items)",
+		"    a                 archive",
+		"    m                 move to folder (type to filter)",
+		"",
 		"  Message list",
 		"    j/k, arrows       move",
 		"    ctrl+d / ctrl+u   half page down / up",
 		"    pgdn / pgup       page down / up",
 		"    g g / G           first / last message",
-		"    enter, v          open message full screen",
+		"    enter, v          open message full screen (marks it read)",
 		"",
 		"  Reading a message",
 		"    j/k               scroll",

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -31,13 +32,15 @@ var ErrAlreadyRunning = errors.New("daemon is already running")
 
 type daemon struct {
 	cfg    *config.Config
+	store  *store.Store
 	engine *mailsync.Engine
 	server *ipc.Server
 	log    *slog.Logger
 	cancel context.CancelFunc
 
-	requests chan syncRequest
-	kick     chan struct{} // run a sync soon, without waiting for a reply
+	requests  chan syncRequest
+	kick      chan struct{} // run a sync soon, without waiting for a reply
+	flushKick chan struct{} // send queued changes to Graph soon
 
 	mu                sync.Mutex
 	status            ipc.Status
@@ -94,16 +97,18 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	d := &daemon{
-		cfg: cfg,
+		cfg:   cfg,
+		store: st,
 		engine: mailsync.New(graph.New(a), st, mailsync.Options{
 			Folders:     cfg.Sync.Folders,
 			InitialDays: cfg.Sync.InitialDays,
 		}, log),
-		log:      log,
-		cancel:   cancel,
-		requests: make(chan syncRequest),
-		kick:     make(chan struct{}, 1),
-		status:   ipc.Status{State: ipc.StateStarting, PID: os.Getpid()},
+		log:       log,
+		cancel:    cancel,
+		requests:  make(chan syncRequest),
+		kick:      make(chan struct{}, 1),
+		flushKick: make(chan struct{}, 1),
+		status:    ipc.Status{State: ipc.StateStarting, PID: os.Getpid(), SafeMode: cfg.Safety.SafeMode},
 	}
 	d.server = ipc.NewServer(d.handle, log)
 
@@ -141,6 +146,11 @@ func lockInstance(path string) (unlock func(), err error) {
 	}
 }
 
+// loop runs syncs and outbox flushes one at a time. Keeping them serial
+// matters: if a flush completed while a sync had already fetched (but not yet
+// applied) a delta page, the stale page would briefly undo the change with
+// no queued op left to rebase on. Flushing before each sync also means local
+// changes reach Graph before we pull.
 func (d *daemon) loop(ctx context.Context) {
 	timer := time.NewTimer(0) // first sync immediately
 	defer timer.Stop()
@@ -148,12 +158,18 @@ func (d *daemon) loop(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-d.flushKick:
+			d.flush(ctx)
+			continue // don't reset the sync timer
 		case <-timer.C:
+			d.flush(ctx)
 			d.syncIfSignedIn(ctx)
 		case <-d.kick:
+			d.flush(ctx)
 			d.syncIfSignedIn(ctx)
 		case req := <-d.requests:
-			res, err := d.runSync(ctx, req.full)
+			d.flush(ctx)
+			res, err := d.runSync(ctx, req.full, true)
 			req.reply <- syncReply{res, err}
 			if err == nil {
 				d.prefetchBodies(ctx)
@@ -175,9 +191,70 @@ func (d *daemon) syncIfSignedIn(ctx context.Context) {
 	if d.getStatus().State == ipc.StateNeedsLogin {
 		return
 	}
-	if _, err := d.runSync(ctx, false); err == nil {
+	if _, err := d.runSync(ctx, false, false); err == nil {
 		d.prefetchBodies(ctx)
 	}
+}
+
+// flush sends queued changes to Graph, reporting rejected (and reverted)
+// ones to clients.
+func (d *daemon) flush(ctx context.Context) {
+	if d.getStatus().State == ipc.StateNeedsLogin {
+		return
+	}
+	res, err := d.engine.FlushOutbox(ctx)
+	if len(res.Changed) > 0 {
+		d.server.Broadcast(ipc.EventChanged, ipc.Changed{FolderIDs: res.Changed})
+	}
+	for _, r := range res.Reverted {
+		d.server.Broadcast(ipc.EventError, ipc.ErrorEvent{
+			Message: fmt.Sprintf("Couldn't %s a message, undone: %v", describeOp(r.Op), r.Err),
+		})
+	}
+	if res.Sent > 0 || len(res.Reverted) > 0 {
+		d.log.Info("flushed outbox", "sent", res.Sent, "reverted", len(res.Reverted))
+	}
+	pending, perr := d.store.PendingCount(ctx)
+	if perr != nil {
+		d.log.Error("counting outbox", "err", perr)
+	}
+	d.mu.Lock()
+	d.status.Pending = pending
+	d.mu.Unlock()
+	if err != nil {
+		d.log.Warn("flushing outbox", "pending", pending, "err", err)
+		d.setState(classifyError(err), err.Error())
+		return
+	}
+	d.server.Broadcast(ipc.EventStatus, d.getStatus())
+}
+
+func describeOp(op store.Op) string {
+	switch op.Kind {
+	case store.OpSetRead:
+		if op.Value {
+			return "mark as read"
+		}
+		return "mark as unread"
+	case store.OpSetFlag:
+		if op.Value {
+			return "flag"
+		}
+		return "unflag"
+	case store.OpMove:
+		return "move"
+	}
+	return string(op.Kind)
+}
+
+func classifyError(err error) string {
+	switch {
+	case errors.Is(err, auth.ErrNeedsLogin):
+		return ipc.StateNeedsLogin
+	case isNetworkError(err):
+		return ipc.StateOffline
+	}
+	return ipc.StateIdle
 }
 
 // prefetchBodies downloads bodies for recent messages after a successful
@@ -194,10 +271,12 @@ func (d *daemon) prefetchBodies(ctx context.Context) {
 	}
 }
 
-func (d *daemon) runSync(ctx context.Context, full bool) (*mailsync.Result, error) {
+// runSync runs one sync pass. refresh re-reads the folder list; it also
+// happens on full syncs and every folderRefreshEvery.
+func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Result, error) {
 	d.setState(ipc.StateSyncing, "")
 
-	refresh := full
+	refresh = refresh || full
 	d.mu.Lock()
 	if time.Since(d.lastFolderRefresh) > folderRefreshEvery {
 		refresh = true
@@ -217,13 +296,7 @@ func (d *daemon) runSync(ctx context.Context, full bool) (*mailsync.Result, erro
 	}()
 
 	if err != nil {
-		state := ipc.StateIdle
-		switch {
-		case errors.Is(err, auth.ErrNeedsLogin):
-			state = ipc.StateNeedsLogin
-		case isNetworkError(err):
-			state = ipc.StateOffline
-		}
+		state := classifyError(err)
 		d.log.Warn("sync failed", "state", state, "err", err)
 		d.setState(state, err.Error())
 		return nil, err
@@ -309,6 +382,13 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		// Runs concurrently with the sync loop; the store serializes writes.
 		return true, d.engine.FetchBody(ctx, p.GraphID)
 
+	case ipc.MethodMutate:
+		var p ipc.MutateParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		return d.mutate(ctx, p)
+
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so
 		// there's nothing to reload; just leave needs_login and sync soon.
@@ -328,4 +408,77 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return true, nil
 	}
 	return nil, fmt.Errorf("unknown method %q", method)
+}
+
+// mutate applies a user's change to the cache right away and queues it for
+// Graph. Safe mode is enforced here so it covers every client.
+func (d *daemon) mutate(ctx context.Context, p ipc.MutateParams) (ipc.MutateResult, error) {
+	accountID, err := d.engine.Account(ctx)
+	if err != nil {
+		return ipc.MutateResult{}, err
+	}
+	var m store.Mutation
+	switch p.Op {
+	case ipc.OpRead, ipc.OpUnread:
+		m = store.Mutation{Kind: store.OpSetRead, Value: p.Op == ipc.OpRead}
+	case ipc.OpFlag, ipc.OpUnflag:
+		m = store.Mutation{Kind: store.OpSetFlag, Value: p.Op == ipc.OpFlag}
+	case ipc.OpMove, ipc.OpArchive, ipc.OpDelete:
+		var dest store.Folder
+		switch p.Op {
+		case ipc.OpMove:
+			dest, err = d.store.Folder(ctx, p.FolderID)
+		case ipc.OpArchive:
+			dest, err = d.store.FolderByWellKnown(ctx, accountID, "archive")
+		case ipc.OpDelete:
+			if d.cfg.Safety.SafeMode {
+				return ipc.MutateResult{}, errors.New("safe mode: delete is disabled (set safety.safe_mode = false to allow it)")
+			}
+			dest, err = d.store.FolderByWellKnown(ctx, accountID, "deleteditems")
+		}
+		if errors.Is(err, store.ErrNotFound) {
+			return ipc.MutateResult{}, fmt.Errorf("%s: destination folder not found", p.Op)
+		}
+		if err != nil {
+			return ipc.MutateResult{}, err
+		}
+		if d.cfg.Safety.SafeMode && !strings.EqualFold(dest.Name, d.cfg.Safety.ScratchFolder) {
+			return ipc.MutateResult{}, fmt.Errorf("safe mode: moves are only allowed to %q, not %q", d.cfg.Safety.ScratchFolder, dest.Name)
+		}
+		m = store.Mutation{Kind: store.OpMove, Dest: dest}
+	default:
+		return ipc.MutateResult{}, fmt.Errorf("unknown op %q", p.Op)
+	}
+
+	var res ipc.MutateResult
+	var changed []int64
+	for _, gid := range p.GraphIDs {
+		c, err := d.store.Enqueue(ctx, accountID, gid, m)
+		if errors.Is(err, store.ErrNotFound) {
+			continue // gone since the client listed it
+		}
+		if err != nil {
+			return res, err
+		}
+		if len(c) > 0 {
+			res.Queued++
+			changed = append(changed, c...)
+		}
+	}
+	if res.Queued > 0 {
+		// Update the pending count before replying, so a client that checks
+		// status right after a change sees it as unsent until it's flushed.
+		if n, err := d.store.PendingCount(ctx); err == nil {
+			d.mu.Lock()
+			d.status.Pending = n
+			d.mu.Unlock()
+		}
+		d.server.Broadcast(ipc.EventStatus, d.getStatus())
+		d.server.Broadcast(ipc.EventChanged, ipc.Changed{FolderIDs: changed})
+		select {
+		case d.flushKick <- struct{}{}:
+		default:
+		}
+	}
+	return res, nil
 }

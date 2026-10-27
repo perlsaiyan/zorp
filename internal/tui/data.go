@@ -218,3 +218,18 @@ func syncNowCmd(cfg *config.Config) tea.Cmd {
 		return syncDoneMsg{c.Call(ctx, ipc.MethodSync, ipc.SyncParams{}, nil)}
 	}
 }
+
+type mutateDoneMsg struct{ err error }
+
+func mutateCmd(cfg *config.Config, p ipc.MutateParams) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		c, err := daemon.Connect(ctx, cfg, true)
+		if err != nil {
+			return mutateDoneMsg{err}
+		}
+		defer c.Close()
+		return mutateDoneMsg{c.Call(ctx, ipc.MethodMutate, p, nil)}
+	}
+}

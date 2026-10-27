@@ -16,6 +16,7 @@ const (
 	MethodSync       = "sync"
 	MethodReloadAuth = "reload-auth"
 	MethodFetchBody  = "fetch-body"
+	MethodMutate     = "mutate"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -24,6 +25,7 @@ const (
 const (
 	EventStatus  = "status"  // data: Status
 	EventChanged = "changed" // data: Changed
+	EventError   = "error"   // data: ErrorEvent
 )
 
 type message struct {
@@ -57,6 +59,8 @@ type Status struct {
 	LastSync  int64  `json:"last_sync,omitempty"` // unix seconds
 	LastError string `json:"last_error,omitempty"`
 	PID       int    `json:"pid"`
+	Pending   int    `json:"pending"`   // queued changes not yet sent to Graph
+	SafeMode  bool   `json:"safe_mode"` // deletes refused, moves only to the scratch folder
 }
 
 type SyncParams struct {
@@ -65,6 +69,33 @@ type SyncParams struct {
 
 type FetchBodyParams struct {
 	GraphID string `json:"graph_id"`
+}
+
+// Mutation ops for MutateParams.Op.
+const (
+	OpRead    = "read"
+	OpUnread  = "unread"
+	OpFlag    = "flag"
+	OpUnflag  = "unflag"
+	OpMove    = "move"    // to FolderID
+	OpArchive = "archive" // to the Archive folder
+	OpDelete  = "delete"  // to Deleted Items
+)
+
+type MutateParams struct {
+	Op       string   `json:"op"`
+	GraphIDs []string `json:"graph_ids"`
+	FolderID int64    `json:"folder_id,omitempty"` // destination for OpMove
+}
+
+type MutateResult struct {
+	Queued int `json:"queued"`
+}
+
+// ErrorEvent reports a failure the user should see, e.g. a change Graph
+// rejected and that was reverted.
+type ErrorEvent struct {
+	Message string `json:"message"`
 }
 
 // Changed tells clients which folders' cached contents changed.

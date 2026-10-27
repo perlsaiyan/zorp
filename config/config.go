@@ -15,8 +15,9 @@ const appName = "zorp"
 
 // Config is the contents of ~/.config/zorp/config.toml.
 type Config struct {
-	Auth Auth `toml:"auth"`
-	Sync Sync `toml:"sync"`
+	Auth   Auth   `toml:"auth"`
+	Sync   Sync   `toml:"sync"`
+	Safety Safety `toml:"safety"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
@@ -44,6 +45,15 @@ type Sync struct {
 	PrefetchBodies int `toml:"prefetch_bodies"`
 }
 
+// Safety limits what zorp may change while it's being developed against a
+// real mailbox. The daemon enforces it, so it covers every client.
+type Safety struct {
+	// SafeMode refuses deletes and only allows moves (including archive)
+	// into ScratchFolder. Read/unread and flag are always allowed.
+	SafeMode      bool   `toml:"safe_mode"`
+	ScratchFolder string `toml:"scratch_folder"`
+}
+
 type Paths struct {
 	ConfigFile string
 	DataDir    string
@@ -62,6 +72,7 @@ func defaults() Config {
 			Folders:        []string{"inbox", "sentitems", "drafts", "archive"},
 			PrefetchBodies: 500,
 		},
+		Safety: Safety{SafeMode: true, ScratchFolder: "zorp-test"},
 	}
 }
 
