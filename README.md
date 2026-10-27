@@ -86,6 +86,10 @@ Opening a message (`Enter`) marks it read. Changes show up immediately and are s
 
 Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
 
+### Over SSH
+
+When there's no local browser (an SSH session, or no display), `O` copies the chosen link to the clipboard of the terminal you're typing in, using OSC 52. `o` writes the message to an HTML file and copies its path. Inside tmux, copying needs `set -g set-clipboard on` in `~/.tmux.conf`. To choose the behaviour yourself, set `ui.open = "browser"` or `"copy"`; the default is `"auto"`. If `xdg-open` fails, zorp copies instead.
+
 ## Searching
 
 `/` searches every cached message (subject, sender and body), newest first. All words must match, and each word matches as a prefix (`budg` finds "budget").

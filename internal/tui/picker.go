@@ -116,7 +116,7 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 			m.picker = nil
 			switch p.kind {
 			case pickLink:
-				return openURLCmd(c.url)
+				return m.openURL(c.url)
 			case pickAttach:
 				m.notice = "Saving…"
 				return saveAttachmentsCmd(m.cfg, p.graphID, c.attIDs)

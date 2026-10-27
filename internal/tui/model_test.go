@@ -718,3 +718,42 @@ func TestMarkdownReviewShowsFormattedResult(t *testing.T) {
 		t.Errorf("review shows the source, not the result:\n%s", view)
 	}
 }
+
+func TestOpenFallsBackToClipboard(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 5000 10.0.0.2 22")
+	t.Setenv("DISPLAY", ":0")
+	cfg := &config.Config{UI: config.UI{Open: "auto"}}
+	if canOpenLocally(cfg) {
+		t.Error("SSH session should not open locally")
+	}
+	cfg.UI.Open = "browser"
+	if !canOpenLocally(cfg) {
+		t.Error("ui.open = browser should open locally")
+	}
+	t.Setenv("SSH_CONNECTION", "")
+	t.Setenv("SSH_TTY", "")
+	cfg.UI.Open = "auto"
+	if !canOpenLocally(cfg) {
+		t.Error("local desktop should open locally")
+	}
+	t.Setenv("DISPLAY", "")
+	t.Setenv("WAYLAND_DISPLAY", "")
+	if canOpenLocally(cfg) {
+		t.Error("no display should not open locally")
+	}
+
+	m := newTestModel(t)
+	m.cfg.UI.Open = "copy"
+	gw := "https://protect.checkpoint.com/v2/r01/___https://example.com/register___.YzJ1"
+	if m.openURL(gw) == nil || !strings.Contains(m.notice, "copied") || !strings.Contains(m.notice, "https://example.com/register") {
+		t.Errorf("copy: notice %q", m.notice)
+	}
+	m.notice = ""
+	if m.exported(exportedMsg{path: "/run/user/1000/zorp-view/x.html"}) == nil || !strings.Contains(m.notice, "/run/user/1000/zorp-view/x.html") {
+		t.Errorf("exported: notice %q", m.notice)
+	}
+	m.notice = ""
+	if m.openDone(openDoneMsg{target: "https://x.example", err: errors.New("xdg-open: not found")}) == nil || !strings.Contains(m.notice, "copied") {
+		t.Errorf("open failure: notice %q", m.notice)
+	}
+}

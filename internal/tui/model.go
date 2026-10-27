@@ -349,11 +349,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case exportedMsg:
+		return m, m.exported(msg)
+
 	case openDoneMsg:
-		if msg.err != nil {
-			m.errText = "open: " + msg.err.Error()
-		}
-		return m, nil
+		return m, m.openDone(msg)
 	}
 	return m, nil
 }
@@ -650,7 +650,7 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		m.openLinkPicker()
 		return nil, true
 	case "o":
-		return openInBrowserCmd(m.cfg, msg.GraphID), true
+		return m.openMessage(msg.GraphID), true
 	case "z":
 		m.showQuoted = !m.showQuoted
 		m.refreshPreview(false)

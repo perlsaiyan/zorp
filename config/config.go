@@ -143,6 +143,10 @@ type UI struct {
 	Mouse bool `toml:"mouse"`
 	// SaveDir is where attachments are saved ("~" is expanded).
 	SaveDir string `toml:"save_dir"`
+	// Open is how links and messages are opened: "browser" (xdg-open),
+	// "copy" (to the terminal's clipboard, for SSH), or "auto" (copy when
+	// there's no local display or this is an SSH session).
+	Open string `toml:"open"`
 }
 
 type Compose struct {
@@ -178,7 +182,7 @@ func defaults() Config {
 		},
 		Safety:  Safety{SafeMode: true, ScratchFolder: "zorp-test"},
 		Keys:    Keys{DeleteArchives: true},
-		UI:      UI{Mouse: true, SaveDir: "~/Downloads"},
+		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto"},
 		Compose: Compose{Format: "markdown"},
 	}
 }
