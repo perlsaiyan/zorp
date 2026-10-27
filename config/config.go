@@ -147,6 +147,9 @@ type UI struct {
 	// "copy" (to the terminal's clipboard, for SSH), or "auto" (copy when
 	// there's no local display or this is an SSH session).
 	Open string `toml:"open"`
+	// Graphics shows inline images: "auto" (detect), "kitty" (force the
+	// Kitty graphics protocol) or "none".
+	Graphics string `toml:"graphics"`
 }
 
 type Compose struct {
@@ -182,7 +185,7 @@ func defaults() Config {
 		},
 		Safety:  Safety{SafeMode: true, ScratchFolder: "zorp-test"},
 		Keys:    Keys{DeleteArchives: true},
-		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto"},
+		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto"},
 		Compose: Compose{Format: "markdown"},
 	}
 }

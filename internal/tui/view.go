@@ -132,10 +132,15 @@ func (m *Model) previewContent(w int) string {
 
 	switch m.bodyState {
 	case bodyReady:
-		lines := m.doc.Render(w, render.Options{ShowQuoted: m.showQuoted})
+		opts := render.Options{ShowQuoted: m.showQuoted}
+		if m.gfx.support.Kitty {
+			opts.Image = m.imageLines
+		}
+		lines := m.doc.Render(w, opts)
 		if len(lines) == 0 {
 			lines = []string{styleFaint.Render("(no text in this message)")}
 		}
+		lines = append(lines, m.attachedImageLines(w)...)
 		b.WriteString(strings.Join(lines, "\n"))
 	case bodyFailed:
 		b.WriteString(ansi.Wrap(cleanBody(msg.BodyPreview)+"\n\n"+styleError.Render("Couldn't load the full message: "+m.bodyErr), w, ""))

@@ -16,9 +16,10 @@ type Run struct {
 	Text   string
 	Bold   bool
 	Italic bool
-	Faint  bool // placeholders, link markers
-	Link   int  // text is part of this link (1-based index into Doc.Links), 0 for none
-	Ref    int  // this run is the "[n]" marker for link n; such links get a footnote
+	Faint  bool   // placeholders, link markers
+	Link   int    // text is part of this link (1-based index into Doc.Links), 0 for none
+	Ref    int    // this run is the "[n]" marker for link n; such links get a footnote
+	Image  string // this run is the placeholder for an inline image with this content ID
 }
 
 type BlockKind int
@@ -92,6 +93,10 @@ func (d *Doc) PlainText() string {
 type Options struct {
 	// ShowQuoted shows folded reply history and signatures.
 	ShowQuoted bool
+	// Image, if set, returns the lines that display the inline image with
+	// the given content ID in at most width columns, or nil to keep its
+	// text placeholder.
+	Image func(cid string, width int) []string
 }
 
 var (
@@ -133,7 +138,7 @@ func (d *Doc) Render(width int, opts Options) []string {
 				used[r.Ref] = true
 			}
 		}
-		out = append(out, renderBlock(b, width)...)
+		out = append(out, renderWithImages(b, width, opts)...)
 	}
 
 	if hiddenFrom < end {
@@ -160,6 +165,41 @@ func (d *Doc) Render(width int, opts Options) []string {
 	// Trim trailing blank lines.
 	for len(out) > 0 && out[len(out)-1] == "" {
 		out = out[:len(out)-1]
+	}
+	return out
+}
+
+// renderWithImages renders a block, replacing inline image placeholders
+// with the image lines opts.Image provides (each image on its own lines,
+// after the block's text).
+func renderWithImages(b Block, width int, opts Options) []string {
+	if opts.Image == nil {
+		return renderBlock(b, width)
+	}
+	quote := strings.Repeat("│ ", b.Quote)
+	var images [][]string
+	keep := make([]Run, 0, len(b.Runs))
+	for _, r := range b.Runs {
+		if r.Image != "" {
+			if lines := opts.Image(r.Image, width-ansi.StringWidth(quote)); lines != nil {
+				images = append(images, lines)
+				continue
+			}
+		}
+		keep = append(keep, r)
+	}
+	if len(images) == 0 {
+		return renderBlock(b, width)
+	}
+	var out []string
+	b.Runs = keep
+	if strings.TrimSpace(b.Plain()) != "" {
+		out = renderBlock(b, width)
+	}
+	for _, lines := range images {
+		for _, l := range lines {
+			out = append(out, styleQuoteBar.Render(quote)+l)
+		}
 	}
 	return out
 }

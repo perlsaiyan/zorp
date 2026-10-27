@@ -11,12 +11,16 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/kitty"
 
 	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/termgfx"
 )
 
 func newTestModel(t *testing.T) *Model {
@@ -755,5 +759,76 @@ func TestOpenFallsBackToClipboard(t *testing.T) {
 	m.notice = ""
 	if m.openDone(openDoneMsg{target: "https://x.example", err: errors.New("xdg-open: not found")}) == nil || !strings.Contains(m.notice, "copied") {
 		t.Errorf("open failure: notice %q", m.notice)
+	}
+}
+
+func TestGraphicsDetectionAndInlineImages(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	// The terminal answers the startup query: Kitty graphics, 10×20 cells.
+	m.gfx.known = false
+	m.Update(uv.KittyGraphicsEvent{Options: kitty.Options{ID: termgfx.QueryID}, Payload: []byte("OK")})
+	m.Update(uv.CellSizeEvent{Width: 10, Height: 20})
+	if m.gfx.known {
+		t.Error("known before the device attributes reply")
+	}
+	m.Update(uv.PrimaryDeviceAttributesEvent{62, 22})
+	if !m.gfx.known || !m.gfx.support.Kitty || m.gfx.cell != (termgfx.CellSize{W: 10, H: 20}) {
+		t.Fatalf("detection: %+v", m.gfx)
+	}
+
+	// A message with an inline image whose body is ready.
+	cur, _ := m.currentMessage()
+	m.doc = render.FromHTML(`<p>Chart:</p><p><img src="cid:chart@x" alt="chart"></p><p>End</p>`)
+	m.bodyState, m.bodyID = bodyReady, cur.ID
+	cmd := m.maybeLoadImages()
+	if cmd == nil || !m.gfx.loading || m.gfx.msgID != cur.ID {
+		t.Fatalf("no image load started: %+v", m.gfx)
+	}
+	if m.maybeLoadImages() != nil {
+		t.Error("second load started while one is running")
+	}
+
+	inline := &termgfx.Image{ID: 5, Cols: 20, Rows: 3, Transmit: "\x1b_Ga=T,i=5;AAAA\x1b\\"}
+	big := &termgfx.Image{ID: 6, Cols: 500, Rows: 2, Transmit: "x"}
+	att := &termgfx.Image{ID: 7, Cols: 10, Rows: 2, Transmit: "\x1b_Ga=T,i=7;AAAA\x1b\\"}
+	w, _ := m.previewWidth()
+	tx := m.imagesReady(imagesMsg{seq: m.bodySeq, msgID: cur.ID, width: w,
+		inline: map[string]*termgfx.Image{"chart@x": inline}, attached: []namedImage{{"photo.jpg", att}, {"huge.png", big}}})
+	if tx == nil {
+		t.Fatal("images not transmitted")
+	}
+	content := m.previewContent(w)
+	if strings.Count(content, string(kitty.Placeholder)) != 20*3+10*2 {
+		t.Errorf("placeholder cells = %d", strings.Count(content, string(kitty.Placeholder)))
+	}
+	plainView := ansi.Strip(content)
+	if strings.Contains(plainView, "[image: chart]") || !strings.Contains(plainView, "▸ photo.jpg") || strings.Contains(plainView, "huge.png") {
+		t.Errorf("preview:\n%s", plainView)
+	}
+	for i, l := range strings.Split(m.View().Content, "\n") {
+		if lw := ansi.StringWidth(l); lw != 120 {
+			t.Errorf("line %d is %d wide", i, lw)
+		}
+	}
+
+	// Results for another message (the cursor moved) are dropped.
+	m.gfx.msgID = -1
+	if m.imagesReady(imagesMsg{msgID: cur.ID, width: w}) != nil {
+		t.Error("stale images used")
+	}
+}
+
+func TestGraphicsOffKeepsTextPlaceholders(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.UI.Graphics = "none"
+	if m.startGraphics() != nil || !m.gfx.known || m.gfx.support.Kitty {
+		t.Errorf("graphics = none: %+v", m.gfx)
+	}
+	m.doc = render.FromHTML(`<img src="cid:a@b" alt="logo">`)
+	m.bodyState = bodyReady
+	if m.maybeLoadImages() != nil {
+		t.Error("images loaded with graphics off")
 	}
 }

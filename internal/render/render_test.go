@@ -208,3 +208,28 @@ func TestTextIsUnstyledAndUnfolded(t *testing.T) {
 		t.Errorf("Text:\n%s", got)
 	}
 }
+
+func TestInlineImagesUseProvidedLines(t *testing.T) {
+	d := FromHTML(`<p>Before <img src="cid:Image001.png%4001DA" alt="chart"> after</p><blockquote><img src="cid:other@x"></blockquote><p><img src="cid:missing@x" alt="gone"></p>`)
+	opts := Options{ShowQuoted: true, Image: func(cid string, width int) []string {
+		switch cid {
+		case "image001.png@01da":
+			return []string{"IMG-A1", "IMG-A2"}
+		case "other@x":
+			return []string{"IMG-B"}
+		}
+		return nil
+	}}
+	out := plain(d.Render(40, opts))
+	for _, want := range []string{"Before after\nIMG-A1\nIMG-A2", "│ IMG-B", "[image: gone]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "[image: chart]") {
+		t.Errorf("text placeholder kept for a shown image:\n%s", out)
+	}
+	if got := plain(d.Render(40, Options{})); !strings.Contains(got, "[image: chart]") {
+		t.Errorf("without images:\n%s", got)
+	}
+}

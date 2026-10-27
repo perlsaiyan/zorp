@@ -24,6 +24,7 @@ const (
 	MethodGetDraft   = "get-draft"
 	MethodAttachList = "attachments"
 	MethodSaveAttach = "save-attachment"
+	MethodImages     = "images"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -176,6 +177,14 @@ type DraftInfo struct {
 	Format      string           `json:"format,omitempty"` // set when Body is the source zorp saved
 	WasHTML     bool             `json:"was_html"`         // converted from HTML; formatting was lost
 	Attachments []AttachmentInfo `json:"attachments"`
+}
+
+// ImageInfo is a message image cached on disk for display.
+type ImageInfo struct {
+	ContentID string `json:"content_id,omitempty"` // inline images: the HTML's cid: reference
+	Name      string `json:"name"`
+	Inline    bool   `json:"inline"`
+	Path      string `json:"path"`
 }
 
 type SaveAttachmentParams struct {

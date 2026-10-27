@@ -86,6 +86,12 @@ Opening a message (`Enter`) marks it read. Changes show up immediately and are s
 
 Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
 
+### Images
+
+In a terminal with the Kitty graphics protocol (kitty, Ghostty), inline images and image attachments appear in the preview and the reader. zorp fetches them through the daemon and caches them for a week in `~/.local/share/zorp/images`. Remote images are never loaded, because they're used for tracking. Other terminals, including Alacritty, show `[image: …]` placeholders.
+
+zorp detects support by itself, which also works over SSH, because `TERM=xterm-kitty` or `xterm-ghostty` carries across. Inside tmux it needs `set -g allow-passthrough on`. To decide yourself, set `ui.graphics = "kitty"` or `"none"`; the default is `"auto"`.
+
 ### Over SSH
 
 When there's no local browser (an SSH session, or no display), `O` copies the chosen link to the clipboard of the terminal you're typing in, using OSC 52. `o` writes the message to an HTML file and copies its path. Inside tmux, copying needs `set -g set-clipboard on` in `~/.tmux.conf`. To choose the behaviour yourself, set `ui.open = "browser"` or `"copy"`; the default is `"auto"`. If `xdg-open` fails, zorp copies instead.

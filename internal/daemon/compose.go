@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/perlsaiyan/zorp/config"
@@ -159,6 +160,21 @@ func (d *daemon) listAttachments(ctx context.Context, params json.RawMessage) ([
 	atts, err := d.engine.Attachments(ctx, p.GraphID)
 	return attachmentInfo(atts), err
 }
+
+func (d *daemon) images(ctx context.Context, params json.RawMessage) ([]ipc.ImageInfo, error) {
+	var p ipc.MessageRef
+	if err := json.Unmarshal(params, &p); err != nil || p.GraphID == "" {
+		return nil, errors.New("images needs a graph_id")
+	}
+	files, err := d.engine.Images(ctx, p.GraphID, d.imageDir())
+	out := make([]ipc.ImageInfo, 0, len(files))
+	for _, f := range files {
+		out = append(out, ipc.ImageInfo{ContentID: f.ContentID, Name: f.Name, Inline: f.Inline, Path: f.Path})
+	}
+	return out, err
+}
+
+func (d *daemon) imageDir() string { return filepath.Join(d.cfg.Paths.DataDir, "images") }
 
 func (d *daemon) saveAttachment(ctx context.Context, params json.RawMessage) (ipc.SaveAttachmentResult, error) {
 	var p ipc.SaveAttachmentParams

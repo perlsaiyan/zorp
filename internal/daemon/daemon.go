@@ -307,6 +307,7 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 		if err := d.engine.PruneSearchHits(ctx); err != nil {
 			d.log.Warn("pruning old search results", "err", err)
 		}
+		mailsync.PruneImageCache(d.imageDir(), time.Now())
 	}
 
 	d.mu.Lock()
@@ -440,6 +441,8 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return d.listAttachments(ctx, params)
 	case ipc.MethodSaveAttach:
 		return d.saveAttachment(ctx, params)
+	case ipc.MethodImages:
+		return d.images(ctx, params)
 
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so

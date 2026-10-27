@@ -80,6 +80,7 @@ type Model struct {
 	search     *search          // active search, whose results are listed
 	searchSeq  int              // bumps per search, to drop stale results
 	composing  *composing       // message being written (review screen)
+	gfx        gfxState         // inline images (Kitty graphics)
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -110,7 +111,7 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, account store
 }
 
 func (m *Model) Init() tea.Cmd {
-	return tea.Batch(subscribeCmd(m.ctx, m.cfg), m.selectMessage())
+	return tea.Batch(subscribeCmd(m.ctx, m.cfg), m.selectMessage(), m.startGraphics())
 }
 
 func (m *Model) currentFolder() (folderRow, bool) {
@@ -222,17 +223,24 @@ func (m *Model) moveMessage(delta int) tea.Cmd {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if cmd, ok := m.graphicsEvent(msg); ok {
+		return m, cmd
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.refreshPreview(false)
-		return m, nil
+		return m, m.maybeLoadImages()
 
 	case tea.KeyPressMsg:
 		if m.prompt != nil {
 			return m, m.promptMsg(msg)
 		}
-		return m, m.handleKey(msg.String())
+		cmd := m.handleKey(msg.String())
+		return m, tea.Batch(cmd, m.maybeLoadImages())
+
+	case imagesMsg:
+		return m, m.imagesReady(msg)
 
 	case tea.PasteMsg:
 		if m.prompt != nil {
@@ -269,7 +277,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if !m.cfg.UI.Mouse {
 			return m, nil
 		}
-		return m, m.handleMouse(msg)
+		cmd := m.handleMouse(msg)
+		return m, tea.Batch(cmd, m.maybeLoadImages())
 
 	case loadedMsg:
 		if msg.err != nil {
@@ -296,6 +305,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bodyState, m.bodyErr = bodyFailed, msg.err.Error()
 		case msg.fetched:
 			m.bodyState, m.doc = bodyReady, parseBody(msg.body)
+			m.refreshPreview(true)
+			return m, m.maybeLoadImages()
 		default:
 			// Not cached yet: ask the daemon, once the cursor settles.
 			seq := msg.seq

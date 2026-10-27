@@ -1,6 +1,7 @@
 package render
 
 import (
+	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
@@ -244,8 +245,22 @@ func (b *htmlBuilder) image(n *html.Node) {
 	if b.hasText {
 		b.pendingSpace = true
 	}
-	b.addRun(Run{Text: "[" + alt + "]", Faint: true}, true)
+	run := Run{Text: "[" + alt + "]", Faint: true}
+	if src := attr(n, "src"); strings.HasPrefix(strings.ToLower(src), "cid:") {
+		run.Image = ContentID(src[4:])
+	}
+	b.addRun(run, true)
 	b.pendingSpace = true
+}
+
+// ContentID normalizes a content ID from a cid: URL or a Content-ID
+// header, for matching the two.
+func ContentID(s string) string {
+	s = strings.Trim(strings.TrimSpace(s), "<>")
+	if u, err := url.PathUnescape(s); err == nil {
+		s = u
+	}
+	return strings.ToLower(s)
 }
 
 // text adds character data, collapsing whitespace outside <pre>.

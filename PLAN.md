@@ -176,6 +176,10 @@ Compose: spawn `$EDITOR` on a temp file with headers (To/Cc/Subject) and a quote
 - Bubble Tea's renderer will clobber raw escape sequences. Use the **Kitty Unicode placeholder** approach (virtual placements, `U=1`) so images survive diff-based redraws, or write image escapes outside the renderer after each frame. Prototype this early as a spike; it is the riskiest UI piece.
 - Respect cell pixel size (`CSI 16 t` or `TIOCGWINSZ` pixel fields) to scale images to the pane.
 - Config flag `graphics = "auto" | "kitty" | "none"`.
+- *As built in M8 (`internal/termgfx`):*
+  - **Detection:** env first (`TERM`, `KITTY_WINDOW_ID`, `GHOSTTY_RESOURCES_DIR`, `TERM_PROGRAM`). In tmux it asks `client_termname` and `allow-passthrough`. Otherwise it sends a Kitty `a=q` query + `CSI 16 t` + DA1 through `tea.Raw`, and reads the replies as ultraviolet events in `Update`, so startup never waits.
+  - **Encoding and transmission:** images are scaled to the pixels their cells cover (at most 2000 px), sent as PNG virtual placements (`a=T,U=1,q=2`, chunked, wrapped for tmux), and drawn with placeholder cells that each carry row and column diacritics. The image ID is a 256-colour foreground (1–255, cycling).
+  - **Sources:** the daemon's `images` method caches a message's image attachments (inline and attached, ≤10 MB, ≤12) in `DataDir/images`, pruned after 7 days. Inline images replace their `[image]` runs through `render.Options.Image`; attachments are listed after the body. Images reload when the pane width changes.
 
 ## 8. MCP server (LLM access to the cache)
 
@@ -239,7 +243,7 @@ config/                        # config loading and defaults
 5. **Rendering**: HTML to styled text, quote folding, link picker, open-in-browser.
 6. **Search**: FTS5 local search, then server-side `$search` fallback.
 7. **Compose/reply/forward** via `$EDITOR`, attachments, drafts.
-8. **Graphics spike then integration**: terminal detection, Kitty placeholders, inline images; clean fallback.
+8. **Graphics spike then integration**: terminal detection, Kitty placeholders, inline images; clean fallback. *(Done: see section 7, "As built in M8".)*
 9. **MCP server**: read-only tools first, then optional guarded writes.
 10. **AI keybindings** (`S`, `D`) and `digest`.
 11. **Polish**: threading, multi-select, keymap config, error surfaces, `--debug` log file, README.
