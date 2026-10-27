@@ -1,0 +1,5 @@
+/zorp
+*.db
+*.db-*
+token_cache.json*
+config.toml
