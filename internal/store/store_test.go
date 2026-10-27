@@ -159,3 +159,33 @@ func TestSearchAndReadOnly(t *testing.T) {
 		t.Error("read-only store accepted a write")
 	}
 }
+
+func TestSetFolderSync(t *testing.T) {
+	ctx := context.Background()
+	s, _, acct, inbox, archive := setup(t)
+	s.SetDeltaLink(ctx, archive.ID, "link", time.Now())
+	s.ApplyDelta(ctx, acct, archive.ID, DeltaBatch{Upserts: []Message{msg("a1", "x", time.Now())}})
+
+	if err := s.SetFolderSync(ctx, inbox.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetFolderSync(ctx, archive.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	in, _ := s.Folder(ctx, inbox.ID)
+	ar, _ := s.Folder(ctx, archive.ID)
+	if in.SyncOverride == nil || !*in.SyncOverride || ar.SyncOverride == nil || *ar.SyncOverride {
+		t.Errorf("overrides: inbox=%v archive=%v", in.SyncOverride, ar.SyncOverride)
+	}
+	if n, _, _ := s.FolderCounts(ctx, archive.ID); n != 0 || ar.DeltaLink != "" || !ar.LastSync.IsZero() {
+		t.Errorf("unsynced folder kept %d messages, link %q", n, ar.DeltaLink)
+	}
+	// ReplaceFolders (the periodic folder refresh) must keep the choice.
+	s.ReplaceFolders(ctx, acct, []Folder{{GraphID: "AAInbox", Name: "Inbox", WellKnown: "inbox"}, {GraphID: "AAArchive", Name: "Archive", WellKnown: "archive"}})
+	if ar, _ := s.Folder(ctx, archive.ID); ar.SyncOverride == nil || *ar.SyncOverride {
+		t.Error("folder refresh lost the sync override")
+	}
+	if err := s.SetFolderSync(ctx, 9999, true); err != ErrNotFound {
+		t.Errorf("unknown folder: %v", err)
+	}
+}

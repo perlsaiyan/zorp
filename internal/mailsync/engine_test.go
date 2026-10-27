@@ -229,3 +229,21 @@ func TestResetSyncOnFreshEngine(t *testing.T) {
 		t.Errorf("after reset = %+v", fr)
 	}
 }
+
+func TestFoldersToSyncHonoursOverrides(t *testing.T) {
+	yes, no := true, false
+	folders := []store.Folder{
+		{ID: 1, Name: "Inbox", WellKnown: "inbox"},
+		{ID: 2, Name: "Archive", WellKnown: "archive", SyncOverride: &no}, // configured, but turned off
+		{ID: 3, Name: "Projects", SyncOverride: &yes},                     // not configured, turned on
+		{ID: 4, Name: "Other"},
+	}
+	e := &Engine{opts: Options{Folders: []string{"inbox", "archive", "Missing"}}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	var names []string
+	for _, f := range e.foldersToSync(folders) {
+		names = append(names, f.Name)
+	}
+	if got := strings.Join(names, ","); got != "Inbox,Projects" {
+		t.Errorf("folders to sync = %s, want Inbox,Projects", got)
+	}
+}

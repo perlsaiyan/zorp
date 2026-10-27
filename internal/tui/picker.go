@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -8,34 +9,82 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/render"
 )
 
-// picker is the "move to folder" chooser: type to filter, arrows to choose.
+type pickerKind int
+
+const (
+	pickMove pickerKind = iota
+	pickLink
+)
+
+// choice is one row in a picker.
+type choice struct {
+	label    string
+	detail   string // shown faint after the label, and matched too
+	indent   int
+	folderID int64
+	url      string
+}
+
+// picker is a type-to-filter chooser, used for "move to folder" and
+// "open link".
 type picker struct {
+	kind    pickerKind
+	title   string
 	query   string
 	cursor  int
 	graphID string // message being moved
-	matches []folderRow
+	all     []choice
+	matches []choice
 }
 
-func (m *Model) openPicker() {
+func (m *Model) openMovePicker() {
 	msg, ok := m.currentMessage()
 	if !ok {
 		return
 	}
-	m.picker = &picker{graphID: msg.GraphID}
+	p := &picker{kind: pickMove, title: "Move to folder", graphID: msg.GraphID}
+	for _, f := range m.folders {
+		if f.ID != m.folderID {
+			p.all = append(p.all, choice{label: clean(f.Name), indent: f.depth, folderID: f.ID})
+		}
+	}
+	m.picker = p
 	m.filterPicker()
 }
 
-// filterPicker keeps folders whose name contains the query's letters in
-// order (a simple fuzzy match), excluding the current folder.
+func (m *Model) openLinkPicker() {
+	if m.doc == nil || len(m.doc.Links) == 0 {
+		m.errText = "no links in this message"
+		return
+	}
+	p := &picker{kind: pickLink, title: "Open link"}
+	for i, l := range m.doc.Links {
+		label := clean(l.Text)
+		if label == "" {
+			label = "(no text)"
+		}
+		p.all = append(p.all, choice{
+			label:  "[" + strconv.Itoa(i+1) + "] " + label,
+			detail: clean(render.DisplayURL(l.URL)),
+			url:    l.URL,
+		})
+	}
+	m.picker = p
+	m.filterPicker()
+}
+
+// filterPicker keeps choices whose label or detail contains the query's
+// letters in order (a simple fuzzy match).
 func (m *Model) filterPicker() {
 	p := m.picker
 	p.matches = p.matches[:0]
 	q := strings.ToLower(p.query)
-	for _, f := range m.folders {
-		if f.ID != m.folderID && fuzzyMatch(strings.ToLower(f.Name), q) {
-			p.matches = append(p.matches, f)
+	for _, c := range p.all {
+		if fuzzyMatch(strings.ToLower(c.label+" "+c.detail), q) {
+			p.matches = append(p.matches, c)
 		}
 	}
 	p.cursor = clamp(p.cursor, 0, len(p.matches)-1)
@@ -59,9 +108,12 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 		m.picker = nil
 	case "enter":
 		if p.cursor < len(p.matches) {
-			dest := p.matches[p.cursor]
+			c := p.matches[p.cursor]
 			m.picker = nil
-			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: dest.ID})
+			if p.kind == pickLink {
+				return openURLCmd(c.url)
+			}
+			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: c.folderID})
 		}
 	case "up", "ctrl+p", "ctrl+k":
 		p.cursor = clamp(p.cursor-1, 0, len(p.matches)-1)
@@ -87,28 +139,34 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 
 func (m *Model) pickerLines(w, h int) []string {
 	p := m.picker
+	action := "move"
+	if p.kind == pickLink {
+		action = "open"
+	}
 	lines := []string{
 		"",
-		styleBold.Render("  Move to folder: ") + clean(p.query) + "█",
-		styleFaint.Render("  type to filter · ↑/↓ choose · enter move · esc cancel"),
+		styleBold.Render("  "+p.title+": ") + clean(p.query) + "█",
+		styleFaint.Render("  type to filter · ↑/↓ choose · enter " + action + " · esc cancel"),
 		"",
 	}
-	if m.status.SafeMode {
+	if p.kind == pickMove && m.status.SafeMode {
 		lines = append(lines, styleError.Render("  Safe mode: only "+m.cfg.Safety.ScratchFolder+" is allowed"), "")
 	}
 	room := max(h-len(lines), 0)
 	top := clamp(p.cursor-room+1, 0, max(len(p.matches)-room, 0))
 	for i := top; i < len(p.matches) && len(lines) < h; i++ {
-		f := p.matches[i]
-		row := "    " + strings.Repeat("  ", f.depth) + clean(f.Name)
+		c := p.matches[i]
+		row := "    " + strings.Repeat("  ", c.indent) + c.label
 		if i == p.cursor {
-			lines = append(lines, styleCursor.Render(fit(row, min(w, ansi.StringWidth(row)+4))))
-		} else {
-			lines = append(lines, row)
+			row = styleCursor.Render(fit(row, min(w, ansi.StringWidth(row)+2)))
 		}
+		if c.detail != "" {
+			row += styleFaint.Render("  " + c.detail)
+		}
+		lines = append(lines, row)
 	}
 	if len(p.matches) == 0 {
-		lines = append(lines, styleFaint.Render("    no matching folders"))
+		lines = append(lines, styleFaint.Render("    nothing matches"))
 	}
 	return padLines(lines, w, h)
 }

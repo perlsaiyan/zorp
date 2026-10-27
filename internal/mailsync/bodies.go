@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/render"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // FetchBody fetches and stores one message's body right away (the user is
@@ -19,7 +21,15 @@ func (e *Engine) FetchBody(ctx context.Context, graphID string) error {
 	if err != nil {
 		return err
 	}
-	return e.store.SetBody(ctx, accountID, graphID, normalizeText(body.Content))
+	return e.store.SetBody(ctx, accountID, graphID, toStoreBody(*body))
+}
+
+// toStoreBody keeps HTML as sent, plus a plain-text rendering for search.
+func toStoreBody(b graph.ItemBody) store.Body {
+	if strings.EqualFold(b.ContentType, "html") {
+		return store.Body{Type: "html", HTML: b.Content, Text: render.FromHTML(b.Content).PlainText()}
+	}
+	return store.Body{Type: "text", Text: normalizeText(b.Content)}
 }
 
 // PrefetchBodies fetches bodies for the account's newest `window` messages
@@ -45,7 +55,7 @@ func (e *Engine) PrefetchBodies(ctx context.Context, window int) (int, error) {
 			return stored, err
 		}
 		for gid, b := range bodies {
-			if err := e.store.SetBody(ctx, accountID, gid, normalizeText(b.Content)); err != nil {
+			if err := e.store.SetBody(ctx, accountID, gid, toStoreBody(b)); err != nil {
 				return stored, err
 			}
 			stored++

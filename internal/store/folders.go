@@ -18,6 +18,9 @@ type Folder struct {
 	TotalCount    int
 	DeltaLink     string
 	LastSync      time.Time
+	// SyncOverride is the user's explicit choice to sync this folder or
+	// not; nil means follow sync.folders in the config.
+	SyncOverride *bool
 }
 
 // ErrNotFound is returned when a looked-up row doesn't exist.
@@ -69,17 +72,44 @@ func (s *Store) ReplaceFolders(ctx context.Context, accountID int64, folders []F
 	})
 }
 
-const folderCols = `id, account_id, graph_id, parent_graph_id, name, well_known, unread_count, total_count, delta_link, last_sync`
+const folderCols = `id, account_id, graph_id, parent_graph_id, name, well_known, unread_count, total_count, delta_link, last_sync, sync_override`
 
 func scanFolder(row interface{ Scan(...any) error }) (Folder, error) {
 	var f Folder
 	var lastSync int64
+	var override sql.NullBool
 	err := row.Scan(&f.ID, &f.AccountID, &f.GraphID, &f.ParentGraphID, &f.Name, &f.WellKnown,
-		&f.UnreadCount, &f.TotalCount, &f.DeltaLink, &lastSync)
+		&f.UnreadCount, &f.TotalCount, &f.DeltaLink, &lastSync, &override)
 	if lastSync != 0 {
 		f.LastSync = time.Unix(lastSync, 0)
 	}
+	if override.Valid {
+		f.SyncOverride = &override.Bool
+	}
 	return f, err
+}
+
+// SetFolderSync records the user's choice to sync a folder or not.
+// Turning sync off forgets the folder's cached messages and delta link
+// (nothing changes on the server).
+func (s *Store) SetFolderSync(ctx context.Context, folderID int64, enabled bool) error {
+	return s.inTx(ctx, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE folders SET sync_override = ? WHERE id = ?`, enabled, folderID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		if enabled {
+			return nil
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE folder_id = ?`, folderID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE folders SET delta_link = '', last_sync = 0 WHERE id = ?`, folderID)
+		return err
+	})
 }
 
 // Folders returns all of the account's folders, ordered by name.

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -130,15 +131,15 @@ const (
 type bodyMsg struct {
 	seq     int
 	id      int64
-	text    string
+	body    store.Body
 	fetched bool
 	err     error
 }
 
 func readBodyCmd(st *store.Store, seq int, id int64) tea.Cmd {
 	return func() tea.Msg {
-		text, fetched, err := st.MessageBody(context.Background(), id)
-		return bodyMsg{seq: seq, id: id, text: text, fetched: fetched, err: err}
+		body, fetched, err := st.MessageBody(context.Background(), id)
+		return bodyMsg{seq: seq, id: id, body: body, fetched: fetched, err: err}
 	}
 }
 
@@ -159,8 +160,8 @@ func fetchBodyCmd(cfg *config.Config, st *store.Store, seq int, id int64, graphI
 		if err := c.Call(ctx, ipc.MethodFetchBody, ipc.FetchBodyParams{GraphID: graphID}, nil); err != nil {
 			return bodyMsg{seq: seq, id: id, err: err}
 		}
-		text, fetched, err := st.MessageBody(ctx, id)
-		return bodyMsg{seq: seq, id: id, text: text, fetched: fetched, err: err}
+		body, fetched, err := st.MessageBody(ctx, id)
+		return bodyMsg{seq: seq, id: id, body: body, fetched: fetched, err: err}
 	}
 }
 
@@ -231,5 +232,54 @@ func mutateCmd(cfg *config.Config, p ipc.MutateParams) tea.Cmd {
 		}
 		defer c.Close()
 		return mutateDoneMsg{c.Call(ctx, ipc.MethodMutate, p, nil)}
+	}
+}
+
+type openDoneMsg struct{ err error }
+
+// openInBrowserCmd has the daemon write the message as a standalone HTML
+// file (inline images embedded, remote content blocked) and opens it.
+func openInBrowserCmd(cfg *config.Config, graphID string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		c, err := daemon.Connect(ctx, cfg, true)
+		if err != nil {
+			return openDoneMsg{err}
+		}
+		defer c.Close()
+		var res ipc.ExportHTMLResult
+		if err := c.Call(ctx, ipc.MethodExportHTML, ipc.ExportHTMLParams{GraphID: graphID}, &res); err != nil {
+			return openDoneMsg{err}
+		}
+		return openDoneMsg{xdgOpen(res.Path)}
+	}
+}
+
+func openURLCmd(url string) tea.Cmd {
+	return func() tea.Msg { return openDoneMsg{xdgOpen(url)} }
+}
+
+// xdgOpen hands a path or URL to the desktop's default handler. Its output
+// is discarded so it can't scribble over the UI.
+func xdgOpen(target string) error {
+	cmd := exec.Command("xdg-open", target)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait() // reap it
+	return nil
+}
+
+func setSyncCmd(cfg *config.Config, folderID int64, enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		c, err := daemon.Connect(ctx, cfg, true)
+		if err != nil {
+			return mutateDoneMsg{err}
+		}
+		defer c.Close()
+		return mutateDoneMsg{c.Call(ctx, ipc.MethodSetSync, ipc.SetSyncParams{FolderID: folderID, Enabled: enabled}, nil)}
 	}
 }

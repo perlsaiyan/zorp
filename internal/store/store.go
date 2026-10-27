@@ -199,4 +199,15 @@ CREATE TABLE outbox (
 );
 CREATE INDEX outbox_message ON outbox (account_id, message_graph_id);
 `,
+	// 2: bodies are stored in their original format (HTML or text) and
+	// rendered locally. Bodies cached as Graph's text conversion are
+	// dropped so they're refetched.
+	`
+ALTER TABLE messages ADD COLUMN body_type TEXT NOT NULL DEFAULT '';
+UPDATE messages SET body_fetched = 0, body_text = '', body_html = '' WHERE body_fetched = 1;
+`,
+	// 3: per-folder sync choice made in the TUI. NULL means "as configured".
+	`
+ALTER TABLE folders ADD COLUMN sync_override INTEGER;
+`,
 }

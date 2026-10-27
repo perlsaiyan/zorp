@@ -101,7 +101,7 @@ func TestMessageBodiesBatch(t *testing.T) {
 		}
 		for _, sub := range req.Requests {
 			p := sub.Headers["Prefer"]
-			if !strings.Contains(p, `IdType="ImmutableId"`) || !strings.Contains(p, `outlook.body-content-type="text"`) {
+			if !strings.Contains(p, `IdType="ImmutableId"`) {
 				t.Errorf("sub-request %s Prefer = %q", sub.ID, p)
 			}
 		}

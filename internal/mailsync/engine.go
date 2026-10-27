@@ -83,12 +83,7 @@ func (e *Engine) Sync(ctx context.Context, refreshFolders bool) (*Result, error)
 		return nil, err
 	}
 	res := &Result{Folders: len(folders)}
-	for _, want := range e.opts.Folders {
-		f, ok := findFolder(folders, want)
-		if !ok {
-			e.log.Warn("configured sync folder not found", "folder", want)
-			continue
-		}
+	for _, f := range e.foldersToSync(folders) {
 		fr, err := e.syncFolder(ctx, accountID, f)
 		if err != nil {
 			return nil, fmt.Errorf("syncing %s: %w", f.Name, err)
@@ -158,6 +153,30 @@ func (e *Engine) syncFolders(ctx context.Context, accountID int64) error {
 		})
 	}
 	return e.store.ReplaceFolders(ctx, accountID, folders)
+}
+
+// foldersToSync is the configured folders (in config order) plus any the
+// user turned on in the TUI, minus any they turned off.
+func (e *Engine) foldersToSync(folders []store.Folder) []store.Folder {
+	var out []store.Folder
+	seen := map[int64]bool{}
+	for _, want := range e.opts.Folders {
+		f, ok := findFolder(folders, want)
+		if !ok {
+			e.log.Warn("configured sync folder not found", "folder", want)
+			continue
+		}
+		if !seen[f.ID] && (f.SyncOverride == nil || *f.SyncOverride) {
+			out = append(out, f)
+		}
+		seen[f.ID] = true
+	}
+	for _, f := range folders {
+		if !seen[f.ID] && f.SyncOverride != nil && *f.SyncOverride {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func findFolder(folders []store.Folder, want string) (store.Folder, bool) {

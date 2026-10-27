@@ -2,7 +2,7 @@
 
 A fast, keyboard-driven terminal mail client for Microsoft 365, talking to Microsoft Graph directly (no IMAP). See [PLAN.md](PLAN.md) for the full design.
 
-**Status:** milestone 4 (actions). Read/unread, flag, delete, archive and move work, in safe mode by default (see below). Reply, compose and search come next.
+**Status:** milestone 5 (rendering). HTML mail renders as styled text with link footnotes and folded reply history; read/unread, flag, archive and move work, in safe mode by default (see below). Search and compose come next.
 
 ## Build
 
@@ -60,12 +60,21 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `b` | show/hide the folder pane |
 | `u` | toggle read / unread |
 | `f` | toggle flag |
-| `d` | delete (moves to Deleted Items) |
+| `d` | archive (or delete, with `keys.delete_archives = false`) |
+| `X` | delete (moves to Deleted Items), after confirming |
 | `a` | archive |
 | `m` | move to a folder (type to filter, Enter to move) |
+| `z` | show/hide quoted replies and signature |
+| `O` | pick a link and open it in the browser |
+| `o` | open the message in the browser (inline images shown; remote images and scripts blocked) |
+| `+` / `-` | start / stop syncing the folder (in the folder pane: the one under the cursor) |
 | `Ctrl+R` | sync now |
 | `L` | log in again when the session has expired |
 | `q` | back / quit |
+
+With the mouse you can click messages and folders, scroll with the wheel, and drag the pane dividers to resize them; sizes and layout are remembered. Hold Shift to select text, or set `ui.mouse = false` to turn mouse support off.
+
+Mail is shown as text: links become numbered footnotes (security-gateway rewrites like Check Point and Safe Links are unwrapped for display, but the original link is what gets opened), quoted reply history and `-- ` signatures are folded, and images appear as `[image: …]` placeholders. Remote images are never downloaded.
 
 Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
 
@@ -92,6 +101,18 @@ interval = "60s"        # delta poll interval
 initial_days = 90       # first sync only fetches this much history; 0 = everything
 folders = ["inbox", "sentitems", "drafts", "archive"]  # well-known names (inbox, sentitems, drafts, archive, ...) or folder names
 prefetch_bodies = 500   # download bodies of the newest N messages in the background; older ones load when opened
+```
+
+Folders you turn on or off with `+`/`-` in the TUI override this list; the choice is stored in the cache, not written to `config.toml`.
+
+Other settings:
+
+```toml
+[keys]
+delete_archives = true  # d archives instead of deleting; X still deletes, after confirming
+
+[ui]
+mouse = true            # click, scroll, drag dividers; Shift+drag to select text
 ```
 
 ## Safe mode

@@ -2,15 +2,16 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -41,18 +42,28 @@ func (m *Model) geom() geom {
 	rest := m.width
 	if m.showFolders && m.width >= 60 {
 		g.folderW = clamp(m.width/5, 16, 28)
+		if m.folderW > 0 {
+			g.folderW = clamp(m.folderW, 10, m.width/2)
+		}
 		rest -= g.folderW + 1
 	}
 	g.listW, g.listH = rest, g.bodyH
 	switch m.layout {
 	case previewRight:
 		if rest >= 80 {
-			g.listW = rest * 55 / 100
+			share := 0.55
+			if m.listShare > 0 {
+				share = m.listShare
+			}
+			g.listW = clamp(int(float64(rest)*share), 20, rest-21)
 			g.previewW, g.previewH = rest-g.listW-1, g.bodyH
 			g.previewOnRight = true
 		}
 	case previewBottom:
 		listH := max(g.bodyH*2/5, 3)
+		if m.listHShare > 0 {
+			listH = clamp(int(float64(g.bodyH)*m.listHShare), 3, max(g.bodyH-4, 3))
+		}
 		if g.bodyH-listH-1 >= 3 {
 			g.listH = listH
 			g.previewW, g.previewH = rest, g.bodyH-listH-1
@@ -119,25 +130,27 @@ func (m *Model) previewContent(w int) string {
 	b.WriteString(styleFaint.Render(strings.Repeat("─", w)))
 	b.WriteString("\n")
 
-	var body string
 	switch m.bodyState {
 	case bodyReady:
-		body = cleanBody(m.bodyText)
-		if body == "" {
-			body = styleFaint.Render("(no text in this message)")
+		lines := m.doc.Render(w, render.Options{ShowQuoted: m.showQuoted})
+		if len(lines) == 0 {
+			lines = []string{styleFaint.Render("(no text in this message)")}
 		}
+		b.WriteString(strings.Join(lines, "\n"))
 	case bodyFailed:
-		body = cleanBody(msg.BodyPreview) + "\n\n" + styleError.Render("Couldn't load the full message: "+m.bodyErr)
+		b.WriteString(ansi.Wrap(cleanBody(msg.BodyPreview)+"\n\n"+styleError.Render("Couldn't load the full message: "+m.bodyErr), w, ""))
 	default:
-		body = cleanBody(msg.BodyPreview) + "\n\n" + styleFaint.Render("Loading…")
+		b.WriteString(ansi.Wrap(cleanBody(msg.BodyPreview)+"\n\n"+styleFaint.Render("Loading…"), w, ""))
 	}
-	b.WriteString(ansi.Wrap(body, w, ""))
 	return b.String()
 }
 
 func (m *Model) View() tea.View {
 	v := tea.NewView("")
 	v.AltScreen = true
+	if m.cfg.UI.Mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	v.WindowTitle = "zorp"
 	if m.width <= 0 || m.height <= 0 {
 		return v
@@ -151,7 +164,7 @@ func (m *Model) View() tea.View {
 	lines = append(lines, m.topBar())
 	switch {
 	case m.help:
-		lines = append(lines, padLines(helpLines(), m.width, g.bodyH)...)
+		lines = append(lines, padLines(m.helpLines(), m.width, g.bodyH)...)
 	case m.picker != nil:
 		lines = append(lines, m.pickerLines(m.width, g.bodyH)...)
 	case m.reading:
@@ -242,8 +255,14 @@ func (m *Model) listLines(w, h int) []string {
 	lines := make([]string, h)
 	if len(m.msgs) == 0 {
 		msg := "No messages."
+		if f, ok := m.currentFolder(); ok && f.synced && m.cfg.Sync.InitialDays > 0 {
+			msg = "No messages in the last " + strconv.Itoa(m.cfg.Sync.InitialDays) + " days (sync.initial_days)."
+		}
 		if f, ok := m.currentFolder(); ok && !f.synced {
-			msg = "This folder isn't synced. Add it to sync.folders in config.toml."
+			msg = "This folder isn't synced. Press + to sync it."
+			if f.SyncOverride != nil && *f.SyncOverride {
+				msg = "Syncing this folder…"
+			}
 		}
 		for i := range lines {
 			lines[i] = strings.Repeat(" ", w)
@@ -356,6 +375,9 @@ func (m *Model) syncState() string {
 }
 
 func (m *Model) bottomBar() string {
+	if m.confirm != nil {
+		return styleError.Render(fit(" "+m.confirm.prompt, m.width))
+	}
 	if m.errText != "" {
 		return styleError.Render(fit(" "+m.errText, m.width))
 	}
@@ -369,20 +391,27 @@ func (m *Model) bottomBar() string {
 	case m.picker != nil:
 		hints = "type to filter  ↑/↓ choose  enter move  esc cancel"
 	case m.reading:
-		hints = "j/k scroll  space/- page  n/p next/prev  u unread  f flag  d delete  a archive  m move  q back"
+		hints = "j/k scroll  space/- page  n/p next/prev  z quotes  O links  o browser  u unread  f flag  d " + m.dLabel() + "  m move  q back"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
 	case m.focus == paneFolders:
-		hints = "j/k move  ⏎ open folder  tab pane  b hide folders  ? help  q quit"
+		hints = "j/k move  ⏎ open folder  + sync  - stop syncing  tab pane  b hide folders  ? help  q quit"
 	case m.focus == panePreview:
 		hints = "j/k scroll  space/- page  tab pane  w layout  ? help  q quit"
 	default:
-		hints = "j/k move  ⏎ open  u read/unread  f flag  d delete  a archive  m move  g i/s/d/a folder  ? help  q quit"
+		hints = "j/k move  ⏎ open  u read/unread  f flag  d " + m.dLabel() + "  a archive  m move  O links  o browser  ? help  q quit"
 	}
 	return styleFaint.Render(fit(" "+hints, m.width))
 }
 
-func helpLines() []string {
+func (m *Model) dLabel() string {
+	if m.cfg.Keys.DeleteArchives {
+		return "archive"
+	}
+	return "delete"
+}
+
+func (m *Model) helpLines() []string {
 	return []string{
 		"",
 		"  zorp keys",
@@ -392,6 +421,9 @@ func helpLines() []string {
 		"    g i, g s, g d, g a   go to Inbox, Sent, Drafts, Archive",
 		"    w                 preview: right, bottom, hidden",
 		"    b                 show/hide folder pane",
+		"    + / -             start / stop syncing the folder",
+		"    mouse             click to select, wheel to scroll, drag dividers to resize",
+		"                      (Shift+drag selects text; ui.mouse = false turns it off)",
 		"    ctrl+r            sync now",
 		"    L                 log in again (when the session expired)",
 		"    ?                 this help",
@@ -400,9 +432,13 @@ func helpLines() []string {
 		"  Messages (list, preview or reader)",
 		"    u                 toggle read / unread",
 		"    f                 toggle flag",
-		"    d                 delete (moves to Deleted Items)",
+		"    d                 " + m.dLabel() + "  (keys.delete_archives in config)",
+		"    X                 delete (moves to Deleted Items), after confirming",
 		"    a                 archive",
 		"    m                 move to folder (type to filter)",
+		"    z                 show/hide quoted replies and signature",
+		"    O                 pick a link to open in the browser",
+		"    o                 open the message in the browser (remote images blocked)",
 		"",
 		"  Message list",
 		"    j/k, arrows       move",
@@ -444,61 +480,11 @@ func padLines(lines []string, w, h int) []string {
 	return out
 }
 
-// invisible reports characters that are dropped from untrusted text:
-// control characters (including the ESC that starts terminal escape
-// sequences) and Unicode format characters (soft hyphens, zero-width joiners,
-// bidi overrides), which terminals disagree about the width of and which
-// marketing mail uses as invisible padding.
-func invisible(r rune) bool {
-	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u034F'
-}
-
 // clean makes untrusted single-line text (subjects, names) safe to print.
-// Newlines and tabs become spaces.
-func clean(s string) string {
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r == '\n' || r == '\r' || r == '\t':
-			return ' '
-		case invisible(r):
-			return -1
-		}
-		return r
-	}, s)
-}
+func clean(s string) string { return render.Sanitize(s, false) }
 
-// cleanBody is clean for multi-line text: newlines are kept, tabs expanded,
-// trailing space trimmed, and runs of blank lines (often left behind by
-// invisible padding) collapsed to one.
-func cleanBody(s string) string {
-	s = strings.ReplaceAll(s, "\t", "    ")
-	s = strings.Map(func(r rune) rune {
-		if r == '\n' {
-			return r
-		}
-		if invisible(r) {
-			return -1
-		}
-		return r
-	}, s)
-	lines := strings.Split(s, "\n")
-	out := lines[:0]
-	blank := 0
-	for _, l := range lines {
-		l = strings.TrimRight(l, " \u00a0")
-		if strings.TrimSpace(l) == "" {
-			blank++
-			if blank > 1 {
-				continue
-			}
-			l = ""
-		} else {
-			blank = 0
-		}
-		out = append(out, l)
-	}
-	return strings.TrimSpace(strings.Join(out, "\n"))
-}
+// cleanBody is clean for multi-line text such as body previews.
+func cleanBody(s string) string { return strings.TrimSpace(render.Sanitize(s, true)) }
 
 func shortDate(t, now time.Time) string {
 	t = t.Local()

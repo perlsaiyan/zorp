@@ -389,6 +389,29 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		}
 		return d.mutate(ctx, p)
 
+	case ipc.MethodExportHTML:
+		var p ipc.ExportHTMLParams
+		if err := json.Unmarshal(params, &p); err != nil || p.GraphID == "" {
+			return nil, errors.New("export-html needs a graph_id")
+		}
+		path, err := d.engine.ExportHTML(ctx, p.GraphID, d.cfg.Paths.ViewDir)
+		return ipc.ExportHTMLResult{Path: path}, err
+
+	case ipc.MethodSetSync:
+		var p ipc.SetSyncParams
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, err
+		}
+		if err := d.store.SetFolderSync(ctx, p.FolderID, p.Enabled); err != nil {
+			return nil, err
+		}
+		d.server.Broadcast(ipc.EventChanged, ipc.Changed{FolderIDs: []int64{p.FolderID}})
+		select {
+		case d.kick <- struct{}{}: // start the folder's first sync now
+		default:
+		}
+		return true, nil
+
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so
 		// there's nothing to reload; just leave needs_login and sync soon.

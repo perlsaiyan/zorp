@@ -28,7 +28,7 @@ Secondary goals:
 | Auth | `github.com/AzureAD/microsoft-authentication-library-for-go` (MSAL Go), device-code flow, token cache persisted to disk (0600) |
 | Graph | Plain `net/http` + typed structs. Do **not** pull in the full Graph SDK (huge, slow builds) |
 | Storage | SQLite via **`modernc.org/sqlite`** (pure Go, no CGO) with **FTS5** for search |
-| HTML to text | `github.com/JohannesKaufmann/html-to-markdown` or similar, then render markdown to styled terminal text |
+| HTML to text | Custom renderer on `golang.org/x/net/html` (decided in M5: direct control over link footnotes, quote depth, hidden preheaders and image placeholders; one dependency instead of html-to-markdown plus a markdown renderer) |
 | Images | Kitty graphics protocol, implemented directly (see section 7) |
 | MCP | Official Go MCP SDK (`github.com/modelcontextprotocol/go-sdk`) or `mark3labs/mcp-go`, stdio transport |
 | Config | TOML at `~/.config/zorp/config.toml` |
@@ -76,7 +76,7 @@ Base: `https://graph.microsoft.com/v1.0`
 - List folders: `GET /me/mailFolders?$top=100` (recurse `childFolders`)
 - Initial sync + incremental: **delta queries**, `GET /me/mailFolders/{id}/messages/delta`. Persist `@odata.deltaLink` per folder. Use `Prefer: odata.maxpagesize=100`.
 - Message fields (`$select`): `id, conversationId, subject, from, toRecipients, ccRecipients, receivedDateTime, isRead, hasAttachments, importance, flag, bodyPreview, parentFolderId, internetMessageId`
-- Full body fetched lazily: `GET /me/messages/{id}?$select=body,uniqueBody` with `Prefer: outlook.body-content-type="html"` (and `"text"` as fallback).
+- Full body fetched lazily in its original format: `GET /me/messages/{id}?$select=body` (no content-type preference), prefetched in `$batch` calls of 20. Quote folding uses local heuristics rather than `uniqueBody` (M5), so it also works for plain text and offline.
 - Attachments: `GET /me/messages/{id}/attachments`, inline images via `contentId` (`cid:` references in HTML).
 - Mutations: `PATCH` (isRead, flag, categories), `POST /me/messages/{id}/move`, `DELETE` (moves to Deleted Items), `POST /me/messages/{id}/reply|replyAll|forward`, `POST /me/sendMail`, drafts via `POST /me/messages`.
 - Handle **429** with `Retry-After`, and **5xx/network** with exponential backoff. Use a single shared `http.Client` with timeouts.
@@ -122,7 +122,10 @@ Rules:
 |---|---|
 | `j/k`, arrows | move |
 | `Enter` / `v` | open message |
-| `d` | delete (to Deleted Items) |
+| `d` | delete (to Deleted Items); archives instead when `keys.delete_archives = true` (the default) *(changed in M5)* |
+| `X` | delete with confirmation *(added in M5)* |
+| `z` | show/hide folded quotes and signature *(added in M5)* |
+| `+` / `-` | start / stop syncing a folder *(added in M5)* |
 | `u` | toggle unread/read |
 | `f` | flag |
 | `a` | archive (move to Archive) |

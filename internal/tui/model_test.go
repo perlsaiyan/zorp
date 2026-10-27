@@ -66,7 +66,7 @@ func newTestModel(t *testing.T) *Model {
 	}
 	// Marketing-style invisible padding (soft hyphen, ZWNJ, CGJ) and a bidi override.
 	padding := strings.Repeat("\u034f\u00ad\u200c   ", 80)
-	st.SetBody(ctx, acct, "evil", "line one\n\x1b[2Jline two\twith tab\n"+padding+"\n"+padding+"\n\u202eevil.exe")
+	st.SetBody(ctx, acct, "evil", store.Body{Type: "text", Text: "line one\n\x1b[2Jline two\twith tab\n" + padding + "\n" + padding + "\n\u202eevil.exe"})
 
 	cfg := &config.Config{}
 	m, err := New(ctx, cfg, st, store.Account{ID: acct, UPN: "test@example.com"})
@@ -237,7 +237,7 @@ func TestMovePicker(t *testing.T) {
 		t.Errorf("picker should list every folder but the current one: %d of %d", len(m.picker.matches), len(m.folders))
 	}
 	press(m, "z", "b") // fuzzy: Zebra
-	if len(m.picker.matches) != 1 || m.picker.matches[0].Name != "Zebra" {
+	if len(m.picker.matches) != 1 || m.picker.matches[0].label != "Zebra" {
 		t.Fatalf("filter 'zb' = %+v", m.picker.matches)
 	}
 	// The view must still fit while the picker is open.
@@ -282,5 +282,117 @@ func TestActionKeysProduceCommands(t *testing.T) {
 	m.reading, m.focus = false, paneFolders
 	if cmd, ok := m.actionKey("d"); ok || cmd != nil {
 		t.Error("d in the folder pane should not delete")
+	}
+}
+
+func TestDragDividersAndClick(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.UI.Mouse = true
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	g := m.geom()
+	listX := g.folderW + 1
+	divX := listX + g.listW
+
+	if d := m.hitDivider(divX, 5); d != previewDivider {
+		t.Fatalf("hit at preview divider = %v", d)
+	}
+	m.Update(tea.MouseClickMsg{X: divX, Y: 5, Button: tea.MouseLeft})
+	m.Update(tea.MouseMotionMsg{X: divX - 30, Y: 5, Button: tea.MouseLeft})
+	m.Update(tea.MouseReleaseMsg{X: divX - 30, Y: 5, Button: tea.MouseLeft})
+	if g2 := m.geom(); g2.listW != g.listW-30 || g2.previewW != g.previewW+30 {
+		t.Errorf("after drag list=%d preview=%d, want %d and %d", g2.listW, g2.previewW, g.listW-30, g.previewW+30)
+	}
+	if m.dragging != noDivider {
+		t.Error("release should end the drag")
+	}
+
+	// Folder divider, dragged absurdly far: clamped.
+	m.Update(tea.MouseClickMsg{X: g.folderW, Y: 3, Button: tea.MouseLeft})
+	m.Update(tea.MouseMotionMsg{X: 500, Y: 3, Button: tea.MouseLeft})
+	m.Update(tea.MouseReleaseMsg{X: 500, Y: 3})
+	if fw := m.geom().folderW; fw != 80 {
+		t.Errorf("folder width = %d, want clamped to half the screen (80)", fw)
+	}
+	for i, l := range strings.Split(m.View().Content, "\n") {
+		if w := ansi.StringWidth(l); w != 160 {
+			t.Errorf("after resizing, line %d is %d wide", i, w)
+		}
+	}
+
+	// Click a message row selects it; the wheel moves the cursor.
+	g = m.geom()
+	m.Update(tea.MouseClickMsg{X: g.folderW + 5, Y: 1 + 4, Button: tea.MouseLeft})
+	if m.msgCur != 4 || m.focus != paneList {
+		t.Errorf("click selected %d (focus %v), want 4", m.msgCur, m.focus)
+	}
+	m.Update(tea.MouseWheelMsg{X: g.folderW + 5, Y: 3, Button: tea.MouseWheelDown})
+	if m.msgCur != 7 {
+		t.Errorf("wheel: cursor %d, want 7", m.msgCur)
+	}
+
+	// Bottom layout: horizontal divider.
+	m.layout = previewBottom
+	m.refreshPreview(false)
+	g = m.geom()
+	if d := m.hitDivider(g.folderW+10, 1+g.listH); d != bottomDivider {
+		t.Fatalf("bottom divider not hit: %v", d)
+	}
+	m.Update(tea.MouseClickMsg{X: g.folderW + 10, Y: 1 + g.listH, Button: tea.MouseLeft})
+	m.Update(tea.MouseMotionMsg{X: g.folderW + 10, Y: 1 + g.listH + 5, Button: tea.MouseLeft})
+	if m.geom().listH != g.listH+5 {
+		t.Errorf("bottom drag: listH %d, want %d", m.geom().listH, g.listH+5)
+	}
+}
+
+func TestMouseOffIgnoresMouse(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 30})
+	m.Update(tea.MouseClickMsg{X: 60, Y: 5, Button: tea.MouseLeft})
+	if m.msgCur != 0 {
+		t.Error("mouse events should be ignored when ui.mouse is off")
+	}
+	if m.View().MouseMode != tea.MouseModeNone {
+		t.Error("mouse capture should be off")
+	}
+}
+
+func TestFolderSyncKeys(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	if cmd := m.handleKey("+"); cmd != nil || !strings.Contains(m.errText, "already synced") {
+		t.Errorf("+ on synced inbox: cmd=%v err=%q", cmd != nil, m.errText)
+	}
+	m.focus = paneFolders
+	m.folderCur = len(m.folders) - 1 // Zebra, not synced
+	if cmd := m.handleKey("+"); cmd == nil {
+		t.Error("+ on an unsynced folder should ask the daemon to sync it")
+	}
+	m.handleKey("-")
+	if !strings.Contains(m.errText, "isn't synced") {
+		t.Errorf("- on unsynced folder: %q", m.errText)
+	}
+	m.folderCur = 0 // Inbox
+	m.handleKey("-")
+	if m.confirm == nil {
+		t.Fatal("- on a synced folder should ask for confirmation")
+	}
+	if cmd := m.handleKey("n"); cmd != nil || m.confirm != nil {
+		t.Error("n should cancel")
+	}
+}
+
+func TestDeleteArchivesSetting(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	m.cfg.Keys.DeleteArchives = true
+	if !strings.Contains(m.bottomBar(), "d archive") {
+		t.Errorf("hint should say d archives: %s", ansi.Strip(m.bottomBar()))
+	}
+	m.handleKey("X")
+	if m.confirm == nil || !strings.Contains(m.confirm.prompt, "Deleted Items") {
+		t.Fatal("X should ask before deleting")
+	}
+	if cmd := m.handleKey("y"); cmd == nil {
+		t.Error("y should confirm the delete")
 	}
 }

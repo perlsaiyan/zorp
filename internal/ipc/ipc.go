@@ -17,6 +17,8 @@ const (
 	MethodReloadAuth = "reload-auth"
 	MethodFetchBody  = "fetch-body"
 	MethodMutate     = "mutate"
+	MethodExportHTML = "export-html"
+	MethodSetSync    = "set-sync"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -90,6 +92,20 @@ type MutateParams struct {
 
 type MutateResult struct {
 	Queued int `json:"queued"`
+}
+
+type ExportHTMLParams struct {
+	GraphID string `json:"graph_id"`
+}
+
+type ExportHTMLResult struct {
+	Path string `json:"path"` // standalone HTML file, safe to open in a browser
+}
+
+// SetSyncParams turns syncing of a folder's messages on or off.
+type SetSyncParams struct {
+	FolderID int64 `json:"folder_id"`
+	Enabled  bool  `json:"enabled"`
 }
 
 // ErrorEvent reports a failure the user should see, e.g. a change Graph

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -51,20 +53,27 @@ type Model struct {
 	msgTop  int // first visible row of the list
 	listLen int // rows the list showed in the last layout
 
-	bodySeq   int // bumps on every selection change, to drop stale results
-	bodyID    int64
-	bodyText  string
-	bodyState bodyState
-	bodyErr   string
-	preview   viewport.Model
+	bodySeq    int // bumps on every selection change, to drop stale results
+	bodyID     int64
+	doc        *render.Doc // parsed body of bodyID, once loaded
+	showQuoted bool        // reveal folded quotes/signature (z)
+	bodyState  bodyState
+	bodyErr    string
+	preview    viewport.Model
 
 	focus       pane
 	layout      layout
 	showFolders bool
-	reading     bool // full-screen message view
-	help        bool
-	picker      *picker // move-to-folder chooser, when open
-	gPending    bool    // saw "g", waiting for the folder letter
+	// Pane sizes set by dragging dividers; zero means the default.
+	folderW    int
+	listShare  float64 // list's share of the width, preview on the right
+	listHShare float64 // list's share of the height, preview at the bottom
+	dragging   divider
+	reading    bool // full-screen message view
+	help       bool
+	picker     *picker // move-to-folder / link chooser, when open
+	confirm    *confirm
+	gPending   bool // saw "g", waiting for the folder letter
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -84,6 +93,7 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, account store
 		showFolders: true,
 		preview:     viewport.New(),
 	}
+	m.loadUIState()
 	loaded := loadData(ctx, st, account.ID, 0, "")
 	if loaded.err != nil {
 		return nil, loaded.err
@@ -142,14 +152,15 @@ func (m *Model) selectMessage() tea.Cmd {
 	m.bodySeq++
 	msg, ok := m.currentMessage()
 	if !ok {
-		m.bodyID, m.bodyState, m.bodyText = 0, bodyNone, ""
+		m.bodyID, m.bodyState, m.doc = 0, bodyNone, nil
 		m.refreshPreview(true)
 		return nil
 	}
 	if msg.ID == m.bodyID && m.bodyState == bodyReady {
 		return nil
 	}
-	m.bodyID, m.bodyState, m.bodyText, m.bodyErr = msg.ID, bodyLoading, "", ""
+	m.bodyID, m.bodyState, m.doc, m.bodyErr = msg.ID, bodyLoading, nil, ""
+	m.showQuoted = isForward(msg.Subject)
 	m.refreshPreview(true)
 	return readBodyCmd(m.st, m.bodySeq, msg.ID)
 }
@@ -201,6 +212,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyPressMsg:
 		return m, m.handleKey(msg.String())
 
+	case tea.MouseMsg:
+		if !m.cfg.UI.Mouse {
+			return m, nil
+		}
+		return m, m.handleMouse(msg)
+
 	case loadedMsg:
 		if msg.err != nil {
 			m.errText = msg.err.Error()
@@ -222,7 +239,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.err != nil:
 			m.bodyState, m.bodyErr = bodyFailed, msg.err.Error()
 		case msg.fetched:
-			m.bodyState, m.bodyText = bodyReady, msg.text
+			m.bodyState, m.doc = bodyReady, parseBody(msg.body)
 		default:
 			// Not cached yet: ask the daemon, once the cursor settles.
 			seq := msg.seq
@@ -275,6 +292,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.errText = msg.err.Error()
 		}
 		return m, nil
+
+	case openDoneMsg:
+		if msg.err != nil {
+			m.errText = "open: " + msg.err.Error()
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -320,6 +343,14 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	m.errText = ""
 	if m.help {
 		m.help = false
+		return nil
+	}
+	if m.confirm != nil {
+		c := m.confirm
+		m.confirm = nil
+		if key == "y" || key == "Y" {
+			return c.cmd
+		}
 		return nil
 	}
 	if m.picker != nil {
@@ -371,6 +402,7 @@ func (m *Model) handleKey(key string) tea.Cmd {
 			m.focus = paneList
 		}
 		m.refreshPreview(false)
+		m.saveUIState()
 		return nil
 	case "b":
 		m.showFolders = !m.showFolders
@@ -378,7 +410,10 @@ func (m *Model) handleKey(key string) tea.Cmd {
 			m.focus = paneList
 		}
 		m.refreshPreview(false)
+		m.saveUIState()
 		return nil
+	case "+", "-":
+		return m.toggleFolderSync(key == "+")
 	case "ctrl+r":
 		return syncNowCmd(m.cfg)
 	case "L":
@@ -523,14 +558,80 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		}
 		return one(ipc.OpFlag), true
 	case "d":
+		if m.cfg.Keys.DeleteArchives {
+			return one(ipc.OpArchive), true
+		}
 		return one(ipc.OpDelete), true
+	case "X":
+		m.confirm = &confirm{prompt: "Delete this message (move to Deleted Items)? y/n", cmd: one(ipc.OpDelete)}
+		return nil, true
 	case "a":
 		return one(ipc.OpArchive), true
 	case "m":
-		m.openPicker()
+		m.openMovePicker()
+		return nil, true
+	case "O":
+		m.openLinkPicker()
+		return nil, true
+	case "o":
+		return openInBrowserCmd(m.cfg, msg.GraphID), true
+	case "z":
+		m.showQuoted = !m.showQuoted
+		m.refreshPreview(false)
 		return nil, true
 	}
 	return nil, false
+}
+
+// toggleFolderSync turns syncing of the folder under the cursor (in the
+// folder pane) or the open folder on or off.
+func (m *Model) toggleFolderSync(on bool) tea.Cmd {
+	f, ok := m.currentFolder()
+	if m.focus == paneFolders && m.folderCur < len(m.folders) {
+		f, ok = m.folders[m.folderCur], true
+	}
+	if !ok {
+		return nil
+	}
+	if on {
+		if f.synced && (f.SyncOverride == nil || *f.SyncOverride) {
+			m.errText = clean(f.Name) + " is already synced"
+			return nil
+		}
+		return setSyncCmd(m.cfg, f.ID, true)
+	}
+	if !f.synced && (f.SyncOverride == nil || !*f.SyncOverride) {
+		m.errText = clean(f.Name) + " isn't synced"
+		return nil
+	}
+	m.confirm = &confirm{
+		prompt: "Stop syncing " + clean(f.Name) + "? Its cached messages are removed from this computer; nothing changes on the server. y/n",
+		cmd:    setSyncCmd(m.cfg, f.ID, false),
+	}
+	return nil
+}
+
+// confirm is a pending y/n question; any key but y cancels.
+type confirm struct {
+	prompt string
+	cmd    tea.Cmd
+}
+
+func parseBody(b store.Body) *render.Doc {
+	if b.Type == "html" && b.HTML != "" {
+		return render.FromHTML(b.HTML)
+	}
+	return render.FromText(b.Text)
+}
+
+// isForward reports forwarded messages, whose quoted part is the content,
+// so it isn't folded.
+func isForward(subject string) bool {
+	s := strings.ToLower(strings.TrimSpace(subject))
+	for strings.HasPrefix(s, "[external]") {
+		s = strings.TrimSpace(strings.TrimPrefix(s, "[external]"))
+	}
+	return strings.HasPrefix(s, "fw:") || strings.HasPrefix(s, "fwd:")
 }
 
 // markRead marks the message under the cursor read, as opening it does in

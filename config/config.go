@@ -18,6 +18,8 @@ type Config struct {
 	Auth   Auth   `toml:"auth"`
 	Sync   Sync   `toml:"sync"`
 	Safety Safety `toml:"safety"`
+	Keys   Keys   `toml:"keys"`
+	UI     UI     `toml:"ui"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
@@ -54,6 +56,19 @@ type Safety struct {
 	ScratchFolder string `toml:"scratch_folder"`
 }
 
+// Keys adjusts what keys do in the TUI.
+type Keys struct {
+	// DeleteArchives makes "d" archive instead of delete, for people who
+	// never delete mail. "X" still deletes, after confirmation.
+	DeleteArchives bool `toml:"delete_archives"`
+}
+
+type UI struct {
+	// Mouse enables clicking, scrolling and dragging pane dividers. While
+	// it's on, most terminals need Shift+drag to select text.
+	Mouse bool `toml:"mouse"`
+}
+
 type Paths struct {
 	ConfigFile string
 	DataDir    string
@@ -61,6 +76,8 @@ type Paths struct {
 	DB         string
 	Socket     string
 	DaemonLog  string
+	ViewDir    string // messages exported for viewing in a browser
+	UIState    string // remembered pane sizes and layout
 }
 
 func defaults() Config {
@@ -73,6 +90,8 @@ func defaults() Config {
 			PrefetchBodies: 500,
 		},
 		Safety: Safety{SafeMode: true, ScratchFolder: "zorp-test"},
+		Keys:   Keys{DeleteArchives: true},
+		UI:     UI{Mouse: true},
 	}
 }
 
@@ -133,6 +152,8 @@ func resolvePaths() (Paths, error) {
 		DB:         filepath.Join(dataDir, "zorp.db"),
 		Socket:     filepath.Join(socketDir, appName+".sock"),
 		DaemonLog:  filepath.Join(dataDir, "daemon.log"),
+		ViewDir:    filepath.Join(socketDir, appName+"-view"),
+		UIState:    filepath.Join(dataDir, "ui-state.json"),
 	}, nil
 }
 

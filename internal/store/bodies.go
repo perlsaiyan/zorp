@@ -30,21 +30,39 @@ func (s *Store) MessagesNeedingBodies(ctx context.Context, accountID int64, wind
 	return out, rows.Err()
 }
 
-// SetBody stores a message's plain-text body. It is a no-op if the message
-// is no longer cached.
-func (s *Store) SetBody(ctx context.Context, accountID int64, graphID, text string) error {
+// Body is a message body as sent. For HTML bodies, Text is a plain-text
+// rendering used for search.
+type Body struct {
+	Type string // "html" or "text"
+	HTML string
+	Text string
+}
+
+// SetBody stores a message's body. It is a no-op if the message is no
+// longer cached.
+func (s *Store) SetBody(ctx context.Context, accountID int64, graphID string, b Body) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE messages SET body_text = ?, body_fetched = 1 WHERE account_id = ? AND graph_id = ?`,
-		text, accountID, graphID)
+		`UPDATE messages SET body_type = ?, body_html = ?, body_text = ?, body_fetched = 1 WHERE account_id = ? AND graph_id = ?`,
+		b.Type, b.HTML, b.Text, accountID, graphID)
 	return err
 }
 
-// MessageBody returns a message's plain-text body and whether it has been
-// fetched yet.
-func (s *Store) MessageBody(ctx context.Context, id int64) (text string, fetched bool, err error) {
-	err = s.db.QueryRowContext(ctx, `SELECT body_text, body_fetched FROM messages WHERE id = ?`, id).Scan(&text, &fetched)
+// MessageBody returns a message's body and whether it has been fetched yet.
+func (s *Store) MessageBody(ctx context.Context, id int64) (b Body, fetched bool, err error) {
+	err = s.db.QueryRowContext(ctx, `SELECT body_type, body_html, body_text, body_fetched FROM messages WHERE id = ?`, id).
+		Scan(&b.Type, &b.HTML, &b.Text, &fetched)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, ErrNotFound
+		return b, false, ErrNotFound
 	}
-	return text, fetched, err
+	return b, fetched, err
+}
+
+// MessageByGraphID returns one cached message's summary.
+func (s *Store) MessageByGraphID(ctx context.Context, accountID int64, graphID string) (Message, error) {
+	m, err := scanMessage(s.db.QueryRowContext(ctx,
+		`SELECT `+messageCols+` FROM messages WHERE account_id = ? AND graph_id = ?`, accountID, graphID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return m, ErrNotFound
+	}
+	return m, err
 }
