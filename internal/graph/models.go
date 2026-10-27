@@ -194,3 +194,31 @@ func IsSyncStateExpired(err error) bool {
 	}
 	return gerr.Status == http.StatusGone || strings.Contains(strings.ToLower(gerr.Code), "syncstate")
 }
+
+// SearchMessages runs a server-side KQL search over the whole mailbox and
+// returns up to limit message summaries. Graph orders results by date,
+// newest first, and caps them at 1000.
+func (c *Client) SearchMessages(ctx context.Context, kql string, limit int) ([]Message, error) {
+	q := url.Values{}
+	// The whole query is one quoted string; quotes inside are escaped.
+	q.Set("$search", `"`+strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(kql)+`"`)
+	q.Set("$select", messageSelect)
+	q.Set("$top", strconv.Itoa(min(limit, 100)))
+	path := "/me/messages?" + q.Encode()
+	var out []Message
+	for path != "" && len(out) < limit {
+		var page struct {
+			Value    []Message `json:"value"`
+			NextLink string    `json:"@odata.nextLink"`
+		}
+		if err := c.get(ctx, path, &page); err != nil {
+			return nil, err
+		}
+		out = append(out, page.Value...)
+		path = page.NextLink
+	}
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}

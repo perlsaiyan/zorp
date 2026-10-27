@@ -255,10 +255,22 @@ func (m *Model) listLines(w, h int) []string {
 	lines := make([]string, h)
 	if len(m.msgs) == 0 {
 		msg := "No messages."
-		if f, ok := m.currentFolder(); ok && f.synced && m.cfg.Sync.InitialDays > 0 {
+		if s := m.search; s != nil {
+			switch {
+			case s.running && s.kql != "":
+				msg = "Searching the server…"
+			case s.running:
+				msg = "Searching…"
+			case s.kql != "":
+				msg = "No matches on the server either."
+			default:
+				msg = "No matches. Start the search with ? to search the server (in: and is: work only locally)."
+			}
+		}
+		if f, ok := m.currentFolder(); ok && f.synced && m.cfg.Sync.InitialDays > 0 && m.search == nil {
 			msg = "No messages in the last " + strconv.Itoa(m.cfg.Sync.InitialDays) + " days (sync.initial_days)."
 		}
-		if f, ok := m.currentFolder(); ok && !f.synced {
+		if f, ok := m.currentFolder(); ok && !f.synced && m.search == nil {
 			msg = "This folder isn't synced. Press + to sync it."
 			if f.SyncOverride != nil && *f.SyncOverride {
 				msg = "Syncing this folder…"
@@ -274,10 +286,14 @@ func (m *Model) listLines(w, h int) []string {
 	}
 
 	showTo := false
-	if f, ok := m.currentFolder(); ok {
+	if f, ok := m.currentFolder(); ok && m.search == nil {
 		showTo = f.WellKnown == "sentitems" || f.WellKnown == "drafts"
 	}
 	fromW := clamp(w/4, 10, 24)
+	folderW := 0
+	if m.search != nil {
+		folderW = clamp(w/8, 6, 14)
+	}
 	now := time.Now()
 	for i := range lines {
 		idx := m.msgTop + i
@@ -309,8 +325,12 @@ func (m *Model) listLines(w, h int) []string {
 		if subject == "" {
 			subject = "(no subject)"
 		}
-		row := fmt.Sprintf(" %c%c%c %6s  %s  %s", status, flag, attach,
-			shortDate(msg.ReceivedAt, now), fit(clean(who), fromW), subject)
+		where := ""
+		if folderW > 0 {
+			where = fit(clean(m.folderName(msg.FolderID)), folderW) + "  "
+		}
+		row := fmt.Sprintf(" %c%c%c %6s  %s%s  %s", status, flag, attach,
+			shortDate(msg.ReceivedAt, now), where, fit(clean(who), fromW), subject)
 		row = fit(row, w)
 
 		style := lipgloss.NewStyle()
@@ -334,7 +354,23 @@ func (m *Model) topBar() string {
 	if m.account.UPN != "" {
 		left += "  " + m.account.UPN
 	}
-	if f, ok := m.currentFolder(); ok {
+	if s := m.search; s != nil {
+		where := "search"
+		if s.kql != "" {
+			where = "server search"
+		}
+		left += "  │  " + where + ": " + clean(strings.TrimPrefix(s.text, "?"))
+		if !s.running {
+			n := strconv.Itoa(len(m.msgs))
+			if s.more {
+				n = "newest " + n
+			}
+			left += "  " + n + " found"
+			if s.note != "" {
+				left += " (" + s.note + ")"
+			}
+		}
+	} else if f, ok := m.currentFolder(); ok {
 		left += fmt.Sprintf("  │  %s  %d messages, %d unread", clean(f.Name), len(m.msgs), countUnread(m.msgs))
 	}
 	if m.reading && len(m.msgs) > 0 {
@@ -375,6 +411,9 @@ func (m *Model) syncState() string {
 }
 
 func (m *Model) bottomBar() string {
+	if m.prompt != nil {
+		return fit(m.prompt.View(), m.width)
+	}
 	if m.confirm != nil {
 		return styleError.Render(fit(" "+m.confirm.prompt, m.width))
 	}
@@ -398,8 +437,10 @@ func (m *Model) bottomBar() string {
 		hints = "j/k move  ⏎ open folder  + sync  - stop syncing  tab pane  b hide folders  ? help  q quit"
 	case m.focus == panePreview:
 		hints = "j/k scroll  space/- page  tab pane  w layout  ? help  q quit"
+	case m.search != nil:
+		hints = "j/k move  ⏎ open  / edit search  esc back to folder  u read/unread  f flag  d " + m.dLabel() + "  m move  ? help"
 	default:
-		hints = "j/k move  ⏎ open  u read/unread  f flag  d " + m.dLabel() + "  a archive  m move  O links  o browser  ? help  q quit"
+		hints = "j/k move  ⏎ open  / search  u read/unread  f flag  d " + m.dLabel() + "  a archive  m move  O links  o browser  ? help  q quit"
 	}
 	return styleFaint.Render(fit(" "+hints, m.width))
 }
@@ -419,6 +460,7 @@ func (m *Model) helpLines() []string {
 		"  Anywhere",
 		"    tab / shift+tab   next / previous pane",
 		"    g i, g s, g d, g a   go to Inbox, Sent, Drafts, Archive",
+		"    /                 search (esc in the results goes back to the folder)",
 		"    w                 preview: right, bottom, hidden",
 		"    b                 show/hide folder pane",
 		"    + / -             start / stop syncing the folder",
@@ -446,6 +488,15 @@ func (m *Model) helpLines() []string {
 		"    pgdn / pgup       page down / up",
 		"    g g / G           first / last message",
 		"    enter, v          open message full screen (marks it read)",
+		"",
+		"  Search  (all folders; words match prefixes, all must match)",
+		`    budget "q3 report"   words and phrases in subject, sender or body`,
+		"    -word             leave out messages with this word",
+		"    from: to: subject:   e.g. from:alice  to:bob@example.com  subject:invoice",
+		"    in:archive        one folder        is:unread  is:read  is:flagged",
+		"    has:attachment    after:2026-01-31  before:7d  (d, w, m, y)",
+		"    ?query            search the server (whole mailbox, Outlook syntax);",
+		"                      also tried automatically when nothing cached matches",
 		"",
 		"  Reading a message",
 		"    j/k               scroll",

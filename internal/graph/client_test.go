@@ -122,3 +122,24 @@ func TestMessageBodiesBatch(t *testing.T) {
 		t.Error("oversized batch accepted")
 	}
 }
+
+func TestSearchMessagesQuotesAndPages(t *testing.T) {
+	var srv string
+	calls := 0
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			if got := r.URL.Query().Get("$search"); got != `"from:alice \"q3 report\" a\\b"` {
+				t.Errorf("$search = %q", got)
+			}
+			w.Write([]byte(`{"value":[{"id":"1"},{"id":"2"}],"@odata.nextLink":"` + srv + `/me/messages?page=2"}`))
+			return
+		}
+		w.Write([]byte(`{"value":[{"id":"3"},{"id":"4"}],"@odata.nextLink":"` + srv + `/me/messages?page=3"}`))
+	})
+	srv = c.baseURL
+	msgs, err := c.SearchMessages(context.Background(), `from:alice "q3 report" a\b`, 3)
+	if err != nil || len(msgs) != 3 || calls != 2 {
+		t.Fatalf("got %d messages in %d calls, %v", len(msgs), calls, err)
+	}
+}

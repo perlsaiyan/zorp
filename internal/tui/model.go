@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
@@ -73,7 +74,10 @@ type Model struct {
 	help       bool
 	picker     *picker // move-to-folder / link chooser, when open
 	confirm    *confirm
-	gPending   bool // saw "g", waiting for the folder letter
+	gPending   bool             // saw "g", waiting for the folder letter
+	prompt     *textinput.Model // search prompt, when open
+	search     *search          // active search, whose results are listed
+	searchSeq  int              // bumps per search, to drop stale results
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -124,6 +128,11 @@ func (m *Model) currentMessage() (store.Message, bool) {
 
 func (m *Model) applyLoaded(l loadedMsg) {
 	m.folders = l.folders
+	if m.search != nil {
+		// The list shows search results; only the folder pane updates.
+		m.folderCur = clamp(m.folderCur, 0, len(m.folders)-1)
+		return
+	}
 	folderChanged := l.folderID != m.folderID
 	m.folderID = l.folderID
 	m.msgs = l.msgs
@@ -166,6 +175,11 @@ func (m *Model) selectMessage() tea.Cmd {
 }
 
 func (m *Model) openFolder(id int64) tea.Cmd {
+	if m.search != nil {
+		m.search = nil
+		m.searchSeq++
+		m.folderID = 0 // force a reload, even of the same folder
+	}
 	if id == m.folderID {
 		return nil
 	}
@@ -210,7 +224,19 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if m.prompt != nil {
+			return m, m.promptMsg(msg)
+		}
 		return m, m.handleKey(msg.String())
+
+	case tea.PasteMsg:
+		if m.prompt != nil {
+			return m, m.promptMsg(msg)
+		}
+		return m, nil
+
+	case searchResultMsg:
+		return m, m.handleSearchResult(msg)
 
 	case tea.MouseMsg:
 		if !m.cfg.UI.Mouse {
@@ -225,6 +251,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		prev, _ := m.currentMessage()
 		m.applyLoaded(msg)
+		if m.search != nil {
+			return m, nil
+		}
 		if cur, ok := m.currentMessage(); !ok || cur.ID != prev.ID {
 			return m, m.selectMessage()
 		}
@@ -315,6 +344,9 @@ func (m *Model) handleEvent(ev ipc.Event) tea.Cmd {
 			m.errText = e.Message
 		}
 	case ipc.EventChanged:
+		if m.search != nil {
+			return tea.Batch(loadCmd(m.st, m.account.ID, m.folderID, ""), m.refreshSearch())
+		}
 		keep := ""
 		if cur, ok := m.currentMessage(); ok {
 			keep = cur.GraphID
@@ -382,8 +414,17 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	}
 
 	switch key {
-	case "q":
-		return tea.Quit
+	case "q", "esc":
+		if m.search != nil {
+			return m.clearSearch()
+		}
+		if key == "q" {
+			return tea.Quit
+		}
+		return nil
+	case "/":
+		m.openPrompt()
+		return nil
 	case "?":
 		m.help = true
 		return nil

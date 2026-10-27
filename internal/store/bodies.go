@@ -12,7 +12,7 @@ func (s *Store) MessagesNeedingBodies(ctx context.Context, accountID int64, wind
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT graph_id FROM (
 			SELECT graph_id, body_fetched, received_at FROM messages
-			WHERE account_id = ? AND deleted = 0
+			WHERE account_id = ? AND deleted = 0 AND from_search = 0
 			ORDER BY received_at DESC LIMIT ?
 		) WHERE body_fetched = 0 ORDER BY received_at DESC LIMIT ?`, accountID, window, limit)
 	if err != nil {

@@ -108,6 +108,7 @@ Rules:
 - WAL mode on. The daemon is the only writer, with one writer goroutine inside it; clients open read-only with a `busy_timeout`.
 - **Safety while developing against a real work mailbox:** config `safe_mode = true` (default until milestone 11) makes the daemon refuse `DELETE` and restricts move/archive to a configured scratch folder (e.g. `zorp-test`). Read/unread and flag are allowed since they're trivially reversible. Turn it off deliberately once the outbox and sync-rebase tests are solid.
 - Body fetching: prefetch bodies for the most recent N (default 500) messages in the background; fetch on demand for older ones.
+- Search *(added in M6)*: local search parses a small syntax (`from:`, `to:`, `subject:`, `in:`, `is:`, `has:attachment`, `after:`/`before:`, `-word`, quoted phrases) into an FTS5 `MATCH` plus SQL filters; user text is always quoted before it reaches `MATCH`. Server search (`$search` on `/me/messages`, via the daemon's `search` IPC method) translates the same query to KQL where possible. Server hits are cached with `from_search = 1`: they can be opened, have bodies fetched and be mutated, but are excluded from folder lists, counts and prefetch, and are pruned 7 days after the last search that found them. A later delta that includes the message adopts it (`from_search = 0`).
 - `zorp sync` asks the daemon to sync now; `zorp sync --full` asks it to rebuild from scratch.
 
 ## 7. TUI design
@@ -133,7 +134,7 @@ Rules:
 | `r` / `R` | reply / reply-all |
 | `F` | forward |
 | `c` | compose |
-| `/` | search (FTS5 local; `?` prefix for server-side `$search`) |
+| `/` | search (FTS5 local; `?` prefix for server-side `$search`; automatic server fallback when nothing local matches); `Esc` leaves the results *(detailed in M6)* |
 | `g` then letter | go to folder (`gi` inbox, `gs` sent, `gd` drafts) |
 | `Space` | select / multi-select; bulk actions apply to selection |
 | `o` | open message HTML in the default browser (write temp file with cid images inlined as data URIs) |

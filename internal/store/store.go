@@ -210,4 +210,11 @@ UPDATE messages SET body_fetched = 0, body_text = '', body_html = '' WHERE body_
 	`
 ALTER TABLE folders ADD COLUMN sync_override INTEGER;
 `,
+	// 4: messages found by a server search outside the synced window. They
+	// are kept for opening and acting on, but don't appear in folder lists,
+	// and are dropped some days after the last search that found them.
+	`
+ALTER TABLE messages ADD COLUMN from_search INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE messages ADD COLUMN searched_at INTEGER NOT NULL DEFAULT 0;
+`,
 }

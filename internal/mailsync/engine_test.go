@@ -84,6 +84,13 @@ func (f *fakeGraph) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 			f.fixture(w, "delta_initial_1.json")
 		}
+	case "/me/messages":
+		if q.Get("$search") != `"budget"` {
+			f.t.Errorf("$search = %q", q.Get("$search"))
+		}
+		io.WriteString(w, `{"value":[
+			{"id":"s1","subject":"Old budget","parentFolderId":"AAArchive","receivedDateTime":"2024-01-02T10:00:00Z"},
+			{"id":"s2","subject":"Hidden","parentFolderId":"AAUnknown","receivedDateTime":"2024-01-01T10:00:00Z"}]}`)
 	default:
 		// Other well-known folders don't exist in this mailbox.
 		w.WriteHeader(http.StatusNotFound)
@@ -245,5 +252,33 @@ func TestFoldersToSyncHonoursOverrides(t *testing.T) {
 	}
 	if got := strings.Join(names, ","); got != "Inbox,Projects" {
 		t.Errorf("folders to sync = %s, want Inbox,Projects", got)
+	}
+}
+
+func TestSearchServerCachesHits(t *testing.T) {
+	ctx := context.Background()
+	fg := newFakeGraph(t)
+	e, st := newTestEngine(t, fg)
+	if _, err := e.Sync(ctx, false); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := e.SearchServer(ctx, "budget", 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != "s1" {
+		t.Fatalf("ids = %v, want [s1] (unknown folder skipped)", ids)
+	}
+	m, err := st.MessageByGraphID(ctx, e.AccountID(), "s1")
+	if err != nil || m.Subject != "Old budget" {
+		t.Errorf("cached hit = %+v, %v", m, err)
+	}
+	// Ten days on, the hit is pruned.
+	e.now = func() time.Time { return time.Date(2026, 11, 6, 12, 0, 0, 0, time.UTC) }
+	if err := e.PruneSearchHits(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.MessageByGraphID(ctx, e.AccountID(), "s1"); err != store.ErrNotFound {
+		t.Errorf("hit not pruned: %v", err)
 	}
 }

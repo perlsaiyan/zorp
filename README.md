@@ -55,6 +55,7 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `j` / `k` | move (or scroll, in the preview and reader) |
 | `Enter` / `v` | read the message full screen (`n`/`p` next/previous, `q` back) |
 | `Tab` | switch between folders, list and preview |
+| `/` | search (see below); `Esc` goes back to the folder |
 | `g` then `i`/`s`/`d`/`a` | go to Inbox, Sent, Drafts, Archive |
 | `w` | preview on the right, at the bottom, or hidden |
 | `b` | show/hide the folder pane |
@@ -79,6 +80,23 @@ Mail is shown as text: links become numbered footnotes (security-gateway rewrite
 Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
 
 Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
+
+## Searching
+
+`/` searches every cached message (subject, sender and body), newest first. All words must match, and each word matches as a prefix (`budg` finds "budget").
+
+| Syntax | Matches |
+|---|---|
+| `budget "q3 report"` | words and exact phrases |
+| `-newsletter` | leaves out messages containing the word |
+| `from:alice` `to:bob@example.com` `subject:invoice` | sender (name or address), To/Cc, subject |
+| `in:archive` | one folder, by name |
+| `is:unread` `is:read` `is:flagged` `has:attachment` | message state |
+| `after:2026-01-31` `before:7d` | received date; ages can use `d`, `w`, `m`, `y` |
+
+The local cache only covers `sync.initial_days` of mail. Start a search with `?` to search the whole mailbox on the server, using Outlook's syntax (`?from:alice received<2025-01-01`). When nothing cached matches, zorp searches the server automatically, unless the query uses `in:` or `is:`, which only work locally. Messages found on the server can be read and acted on like any other. They're cached for a week but don't appear in folder lists.
+
+From the shell: `zorp search QUERY` (add `--server` for a server search, `-n 100` for more results).
 
 ## Syncing
 

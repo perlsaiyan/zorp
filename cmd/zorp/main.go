@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/perlsaiyan/zorp/internal/graph"
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/mailsync"
+	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 	"github.com/perlsaiyan/zorp/internal/tui"
 )
@@ -33,6 +35,7 @@ commands:
   logout                         forget the cached sign-in
   whoami                         show the signed-in user (calls Graph /me)
   probe                          list the 10 newest Inbox messages (auth go/no-go check)
+  search [--server] [-n N] QUERY search mail (same syntax as / in the TUI; --server searches Graph)
   sync [--full]                  sync now via the daemon (starting it if needed); --full rebuilds the cache
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
@@ -61,6 +64,8 @@ func main() {
 		err = runProbe(ctx)
 	case "sync":
 		err = runSync(ctx, args)
+	case "search":
+		err = runSearch(ctx, args)
 	case "daemon":
 		err = runDaemon(ctx, args)
 	case "-h", "--help", "help":
@@ -396,4 +401,95 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+func runSearch(ctx context.Context, args []string) error {
+	// Flags are parsed by hand so "-word" (exclude a word) stays part of the
+	// query and flags can come before or after it.
+	server, limit := false, 50
+	var words []string
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; a {
+		case "--server", "-server":
+			server = true
+		case "-n", "--n":
+			if i+1 == len(args) {
+				return errors.New("-n needs a number")
+			}
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n <= 0 {
+				return fmt.Errorf("-n %s: want a positive number", args[i+1])
+			}
+			limit = n
+			i++
+		default:
+			words = append(words, a)
+		}
+	}
+	text := strings.Join(words, " ")
+	if strings.TrimSpace(text) == "" {
+		return errors.New("nothing to search for")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	st, account, err := openCache(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	var msgs []store.Message
+	more := false
+	if server {
+		if err := cfg.Validate(); err != nil {
+			return err
+		}
+		c, err := daemon.Connect(ctx, cfg, true)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		var res ipc.SearchResult
+		if err := c.Call(ctx, ipc.MethodSearch, ipc.SearchParams{KQL: text, Limit: limit}, &res); err != nil {
+			return err
+		}
+		if msgs, err = st.MessagesByGraphIDs(ctx, account.ID, res.GraphIDs); err != nil {
+			return err
+		}
+	} else {
+		q, err := store.ParseQuery(text, time.Now())
+		if err != nil {
+			return err
+		}
+		if msgs, more, err = st.Search(ctx, account.ID, q, limit); err != nil {
+			return err
+		}
+	}
+
+	folders, err := st.Folders(ctx, account.ID)
+	if err != nil {
+		return err
+	}
+	names := map[int64]string{}
+	for _, f := range folders {
+		names[f.ID] = f.Name
+	}
+	for _, m := range msgs {
+		from := m.From.Name
+		if from == "" {
+			from = m.From.Addr
+		}
+		fmt.Printf("%s  %-14s  %-22s  %s\n", m.ReceivedAt.Local().Format("2006-01-02"),
+			truncate(render.Sanitize(names[m.FolderID], false), 14),
+			truncate(render.Sanitize(from, false), 22), truncate(render.Sanitize(m.Subject, false), 80))
+	}
+	switch {
+	case len(msgs) == 0:
+		fmt.Println("No matches.")
+	case more:
+		fmt.Printf("(newest %d shown; use -n for more)\n", len(msgs))
+	}
+	return nil
 }

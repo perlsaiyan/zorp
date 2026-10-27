@@ -180,7 +180,7 @@ func (s *Store) DefaultAccount(ctx context.Context) (Account, error) {
 func (s *Store) LocalFolderCounts(ctx context.Context, accountID int64) (total, unread map[int64]int, err error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT folder_id, count(*), coalesce(sum(is_read = 0), 0) FROM messages
-		WHERE account_id = ? AND deleted = 0 GROUP BY folder_id`, accountID)
+		WHERE account_id = ? AND deleted = 0 AND from_search = 0 GROUP BY folder_id`, accountID)
 	if err != nil {
 		return nil, nil, err
 	}

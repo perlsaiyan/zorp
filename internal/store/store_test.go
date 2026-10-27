@@ -147,7 +147,8 @@ func TestSearchAndReadOnly(t *testing.T) {
 	}
 	defer ro.Close()
 	for q, want := range map[string]int{"quarterly": 1, "lunch": 0, "dinner": 1, "alice": 2} {
-		got, err := ro.Search(ctx, acct, q, 10)
+		pq, _ := ParseQuery(q, time.Now())
+		got, _, err := ro.Search(ctx, acct, pq, 10)
 		if err != nil {
 			t.Fatalf("search %q: %v", q, err)
 		}

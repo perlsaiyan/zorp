@@ -101,7 +101,8 @@ func upsertMessage(ctx context.Context, tx *sql.Tx, accountID, folderID int64, m
 			importance          = excluded.importance,
 			flagged             = excluded.flagged,
 			categories_json     = excluded.categories_json,
-			body_preview        = excluded.body_preview`,
+			body_preview        = excluded.body_preview,
+			from_search         = 0`,
 		accountID, m.GraphID, folderID, m.ConversationID, m.InternetMessageID, m.Subject,
 		m.From.Name, m.From.Addr, jsonOrEmpty(m.To), jsonOrEmpty(m.Cc), m.ReceivedAt.Unix(), m.IsRead, m.HasAttachments,
 		m.Importance, m.Flagged, jsonOrEmpty(m.Categories), m.BodyPreview)
@@ -153,7 +154,7 @@ func (s *Store) PruneFolder(ctx context.Context, folderID int64, since time.Time
 // FolderCounts returns the number of cached and unread messages in a folder.
 func (s *Store) FolderCounts(ctx context.Context, folderID int64) (total, unread int, err error) {
 	err = s.db.QueryRowContext(ctx,
-		`SELECT count(*), coalesce(sum(is_read = 0), 0) FROM messages WHERE folder_id = ? AND deleted = 0`,
+		`SELECT count(*), coalesce(sum(is_read = 0), 0) FROM messages WHERE folder_id = ? AND deleted = 0 AND from_search = 0`,
 		folderID).Scan(&total, &unread)
 	return total, unread, err
 }
@@ -184,43 +185,12 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 func (s *Store) MessagesInFolder(ctx context.Context, folderID int64, limit int) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+messageCols+` FROM messages
-		WHERE folder_id = ? AND deleted = 0
+		WHERE folder_id = ? AND deleted = 0 AND from_search = 0
 		ORDER BY received_at DESC LIMIT ?`, folderID, limit)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []Message
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
-}
-
-// Search runs an FTS5 query over subject, sender and body text, newest first.
-func (s *Store) Search(ctx context.Context, accountID int64, query string, limit int) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+prefixCols("m.", messageCols)+` FROM messages_fts f
-		JOIN messages m ON m.id = f.rowid
-		WHERE messages_fts MATCH ? AND m.account_id = ? AND m.deleted = 0
-		ORDER BY m.received_at DESC LIMIT ?`, query, accountID, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []Message
-	for rows.Next() {
-		m, err := scanMessage(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, m)
-	}
-	return out, rows.Err()
+	return scanMessages(rows)
 }
 
 func jsonOrEmpty[T any](v []T) string {

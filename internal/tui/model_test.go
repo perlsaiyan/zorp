@@ -396,3 +396,137 @@ func TestDeleteArchivesSetting(t *testing.T) {
 		t.Error("y should confirm the delete")
 	}
 }
+
+func typeText(m *Model, s string) {
+	for _, r := range s {
+		m.Update(tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+}
+
+func submit(m *Model) tea.Cmd {
+	_, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	return cmd
+}
+
+func TestSearch(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	inbox := len(m.msgs)
+
+	press(m, "/")
+	if m.prompt == nil {
+		t.Fatal("/ didn't open the prompt")
+	}
+	typeText(m, "number 4")
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "/number 4") {
+		t.Errorf("prompt not shown:\n%s", view)
+	}
+	deliver(m, submit(m))
+	if m.prompt != nil || m.search == nil {
+		t.Fatal("enter didn't start a search")
+	}
+	// "number 4" and "number 40".."number 49" (words match prefixes).
+	if len(m.msgs) != 11 || m.msgs[0].GraphID != "m49" {
+		t.Fatalf("results = %d, first %v", len(m.msgs), m.msgs[0].GraphID)
+	}
+	view = ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "search: number 4  11 found") || !strings.Contains(view, "Inbox") {
+		t.Errorf("results view:\n%s", view)
+	}
+
+	// The cache changing re-runs the search and keeps the cursor.
+	press(m, "j", "j")
+	cur, _ := m.currentMessage()
+	deliver(m, m.refreshSearch())
+	if now, _ := m.currentMessage(); now.GraphID != cur.GraphID || len(m.msgs) != 11 {
+		t.Errorf("refresh moved the cursor from %s to %s", cur.GraphID, now.GraphID)
+	}
+
+	// / reopens the prompt with the query to edit; esc there keeps the results.
+	press(m, "/")
+	if m.prompt == nil || m.prompt.Value() != "number 4" {
+		t.Fatal("prompt not prefilled")
+	}
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	if m.prompt != nil || len(m.msgs) != 11 {
+		t.Error("esc in the prompt should only close it")
+	}
+
+	// esc in the list goes back to the folder.
+	deliver(m, m.handleKey("esc"))
+	if m.search != nil || len(m.msgs) != inbox {
+		t.Errorf("after clearing: search=%v msgs=%d", m.search, len(m.msgs))
+	}
+
+	// Bad syntax and unknown folders are reported, not searched.
+	press(m, "/")
+	typeText(m, "is:spam")
+	deliver(m, submit(m))
+	if m.search != nil || !strings.Contains(m.errText, "is:spam") {
+		t.Errorf("bad query: search=%v err=%q", m.search, m.errText)
+	}
+	press(m, "/")
+	typeText(m, "in:nowhere")
+	deliver(m, submit(m))
+	if !strings.Contains(m.errText, "nowhere") {
+		t.Errorf("unknown folder: err=%q", m.errText)
+	}
+	press(m, "esc")
+
+	// Nothing cached: falls back to the server when the query allows it.
+	press(m, "/")
+	typeText(m, "zanzibar")
+	cmd := submit(m)
+	if msg := cmd(); msg != nil {
+		if next := m.handleSearchResult(msg.(searchResultMsg)); next == nil {
+			t.Error("no server search started")
+		}
+	}
+	if m.search.kql != "zanzibar" || !m.search.running {
+		t.Errorf("fallback: %+v", m.search)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "Searching the server") {
+		t.Errorf("fallback view:\n%s", view)
+	}
+
+	// ...but not when it uses local-only filters.
+	press(m, "esc", "/")
+	typeText(m, "zanzibar is:unread")
+	deliver(m, submit(m))
+	if m.search.kql != "" || m.search.running {
+		t.Errorf("local-only query went to the server: %+v", m.search)
+	}
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "No matches. Start the search with ?") {
+		t.Errorf("no-match view:\n%s", view)
+	}
+
+	// Opening a folder from the folder pane leaves the search.
+	press(m, "h", "enter")
+	if m.search != nil || len(m.msgs) != inbox {
+		t.Errorf("opening a folder: search=%v msgs=%d", m.search, len(m.msgs))
+	}
+}
+
+func TestSearchViewFits(t *testing.T) {
+	m := newTestModel(t)
+	press(m, "/")
+	typeText(m, "subject")
+	for _, sz := range [][2]int{{20, 5}, {80, 24}, {200, 50}} {
+		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		for i, l := range strings.Split(m.View().Content, "\n") {
+			if w := ansi.StringWidth(l); w != sz[0] {
+				t.Errorf("%dx%d prompt open: line %d is %d wide", sz[0], sz[1], i, w)
+			}
+		}
+	}
+	deliver(m, submit(m))
+	for _, sz := range [][2]int{{20, 5}, {80, 24}, {200, 50}} {
+		m.Update(tea.WindowSizeMsg{Width: sz[0], Height: sz[1]})
+		for i, l := range strings.Split(m.View().Content, "\n") {
+			if w := ansi.StringWidth(l); w != sz[0] {
+				t.Errorf("%dx%d results: line %d is %d wide", sz[0], sz[1], i, w)
+			}
+		}
+	}
+}

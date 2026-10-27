@@ -302,6 +302,12 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 		return nil, err
 	}
 
+	if refresh {
+		if err := d.engine.PruneSearchHits(ctx); err != nil {
+			d.log.Warn("pruning old search results", "err", err)
+		}
+	}
+
 	d.mu.Lock()
 	if refresh {
 		d.lastFolderRefresh = time.Now()
@@ -411,6 +417,19 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		default:
 		}
 		return true, nil
+
+	case ipc.MethodSearch:
+		var p ipc.SearchParams
+		if err := json.Unmarshal(params, &p); err != nil || strings.TrimSpace(p.KQL) == "" {
+			return nil, errors.New("search needs a query")
+		}
+		limit := p.Limit
+		if limit <= 0 {
+			limit = 100
+		}
+		// Runs concurrently with the sync loop, like fetch-body.
+		ids, err := d.engine.SearchServer(ctx, p.KQL, min(limit, 250))
+		return ipc.SearchResult{GraphIDs: ids}, err
 
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so

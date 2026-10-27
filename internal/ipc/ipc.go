@@ -19,6 +19,7 @@ const (
 	MethodMutate     = "mutate"
 	MethodExportHTML = "export-html"
 	MethodSetSync    = "set-sync"
+	MethodSearch     = "search"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -106,6 +107,18 @@ type ExportHTMLResult struct {
 type SetSyncParams struct {
 	FolderID int64 `json:"folder_id"`
 	Enabled  bool  `json:"enabled"`
+}
+
+// SearchParams asks for a server-side search of the whole mailbox.
+type SearchParams struct {
+	KQL   string `json:"kql"`             // Graph $search (KQL) query
+	Limit int    `json:"limit,omitempty"` // default 100, at most 250
+}
+
+// SearchResult lists the matches, which the daemon has cached so clients
+// can read them from the store.
+type SearchResult struct {
+	GraphIDs []string `json:"graph_ids"`
 }
 
 // ErrorEvent reports a failure the user should see, e.g. a change Graph
