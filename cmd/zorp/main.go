@@ -13,17 +13,22 @@ import (
 	"syscall"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/tom/zorp/config"
 	"github.com/tom/zorp/internal/auth"
 	"github.com/tom/zorp/internal/daemon"
 	"github.com/tom/zorp/internal/graph"
 	"github.com/tom/zorp/internal/ipc"
 	"github.com/tom/zorp/internal/mailsync"
+	"github.com/tom/zorp/internal/store"
+	"github.com/tom/zorp/internal/tui"
 )
 
-const usage = `usage: zorp <command> [flags]
+const usage = `usage: zorp [command] [flags]
 
 commands:
+  (none), tui                    open the mail client
   login [--device | --browser]   sign in (default: device code, falling back to browser)
   logout                         forget the cached sign-in
   whoami                         show the signed-in user (calls Graph /me)
@@ -34,16 +39,17 @@ commands:
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cmd, args := os.Args[1], os.Args[2:]
+	cmd, args := "tui", []string(nil)
+	if len(os.Args) > 1 {
+		cmd, args = os.Args[1], os.Args[2:]
+	}
 	var err error
 	switch cmd {
+	case "tui":
+		err = runTUI(ctx)
 	case "login":
 		err = runLogin(ctx, args)
 	case "logout":
@@ -136,6 +142,56 @@ func runLogout(ctx context.Context) error {
 	fmt.Println("Signed out.")
 	notifyDaemonAuth(ctx, cfg)
 	return nil
+}
+
+func runTUI(ctx context.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	st, account, err := openCache(ctx, cfg)
+	if errors.Is(err, store.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		// First run: fill the cache before opening the UI.
+		fmt.Println("No local mail cache yet; running the first sync (this can take a minute)...")
+		if err := runSync(ctx, nil); err != nil {
+			return err
+		}
+		st, account, err = openCache(ctx, cfg)
+	}
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	m, err := tui.New(ctx, cfg, st, account)
+	if err != nil {
+		return err
+	}
+	_, err = tea.NewProgram(m, tea.WithContext(ctx)).Run()
+	if errors.Is(err, tea.ErrProgramKilled) && ctx.Err() != nil {
+		return nil // interrupted by a signal
+	}
+	return err
+}
+
+// openCache opens the local cache read-only and returns its account.
+func openCache(ctx context.Context, cfg *config.Config) (*store.Store, store.Account, error) {
+	if _, err := os.Stat(cfg.Paths.DB); err != nil {
+		return nil, store.Account{}, err
+	}
+	st, err := store.OpenReadOnly(cfg.Paths.DB)
+	if err != nil {
+		return nil, store.Account{}, err
+	}
+	account, err := st.DefaultAccount(ctx)
+	if err != nil {
+		st.Close()
+		return nil, store.Account{}, err
+	}
+	return st, account, nil
 }
 
 func runSync(ctx context.Context, args []string) error {

@@ -143,6 +143,9 @@ func (d *daemon) loop(ctx context.Context) {
 		case req := <-d.requests:
 			res, err := d.runSync(ctx, req.full)
 			req.reply <- syncReply{res, err}
+			if err == nil {
+				d.prefetchBodies(ctx)
+			}
 		}
 		if !timer.Stop() {
 			select {
@@ -160,7 +163,23 @@ func (d *daemon) syncIfSignedIn(ctx context.Context) {
 	if d.getStatus().State == ipc.StateNeedsLogin {
 		return
 	}
-	d.runSync(ctx, false)
+	if _, err := d.runSync(ctx, false); err == nil {
+		d.prefetchBodies(ctx)
+	}
+}
+
+// prefetchBodies downloads bodies for recent messages after a successful
+// sync. Failures are logged and retried after the next sync.
+func (d *daemon) prefetchBodies(ctx context.Context) {
+	start := time.Now()
+	n, err := d.engine.PrefetchBodies(ctx, d.cfg.Sync.PrefetchBodies)
+	if err != nil {
+		d.log.Warn("prefetching bodies", "stored", n, "err", err)
+		return
+	}
+	if n > 0 {
+		d.log.Info("prefetched bodies", "stored", n, "took", time.Since(start).Round(time.Millisecond))
+	}
 }
 
 func (d *daemon) runSync(ctx context.Context, full bool) (*mailsync.Result, error) {
@@ -269,6 +288,14 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
+
+	case ipc.MethodFetchBody:
+		var p ipc.FetchBodyParams
+		if err := json.Unmarshal(params, &p); err != nil || p.GraphID == "" {
+			return nil, errors.New("fetch-body needs a graph_id")
+		}
+		// Runs concurrently with the sync loop; the store serializes writes.
+		return true, d.engine.FetchBody(ctx, p.GraphID)
 
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so

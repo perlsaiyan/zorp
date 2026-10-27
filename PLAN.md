@@ -141,6 +141,11 @@ Rules:
 | `D` | AI draft reply (section 9) |
 | `?` | help |
 | `q` | back / quit |
+| `Tab` | cycle focus: folders / list / preview *(added in M3)* |
+| `w` | preview layout: right / bottom / hidden *(added in M3)* |
+| `b` | show/hide folder pane *(added in M3)* |
+| `Ctrl+R` | sync now *(added in M3)* |
+| `L` | log in again when the daemon reports `needs_login` *(added in M3)* |
 
 Compose: spawn `$EDITOR` on a temp file with headers (To/Cc/Subject) and a quoted body; parse on exit; confirm before send. Support attachments via a header line (`Attach: /path`).
 

@@ -127,3 +127,42 @@ func (s *Store) ResetSync(ctx context.Context, accountID int64) error {
 		return err
 	})
 }
+
+type Account struct {
+	ID          int64
+	UPN         string
+	DisplayName string
+}
+
+// DefaultAccount returns the first (for now, only) account.
+func (s *Store) DefaultAccount(ctx context.Context) (Account, error) {
+	var a Account
+	err := s.db.QueryRowContext(ctx, `SELECT id, upn, display_name FROM accounts ORDER BY id LIMIT 1`).
+		Scan(&a.ID, &a.UPN, &a.DisplayName)
+	if errors.Is(err, sql.ErrNoRows) {
+		return a, ErrNotFound
+	}
+	return a, err
+}
+
+// LocalFolderCounts returns cached and unread message counts per folder, for
+// folders that have any cached messages.
+func (s *Store) LocalFolderCounts(ctx context.Context, accountID int64) (total, unread map[int64]int, err error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT folder_id, count(*), coalesce(sum(is_read = 0), 0) FROM messages
+		WHERE account_id = ? AND deleted = 0 GROUP BY folder_id`, accountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer rows.Close()
+	total, unread = map[int64]int{}, map[int64]int{}
+	for rows.Next() {
+		var id int64
+		var t, u int
+		if err := rows.Scan(&id, &t, &u); err != nil {
+			return nil, nil, err
+		}
+		total[id], unread[id] = t, u
+	}
+	return total, unread, rows.Err()
+}

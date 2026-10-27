@@ -2,6 +2,7 @@
 package graph
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -67,9 +68,26 @@ func IsNotFound(err error) bool {
 
 // get fetches path (relative to the base URL, or an absolute URL such as a
 // nextLink) and decodes the JSON response into v. prefer adds values to the
-// Prefer header. It retries 429 (honoring Retry-After), 5xx, and network
-// errors with backoff.
+// Prefer header.
 func (c *Client) get(ctx context.Context, path string, v any, prefer ...string) error {
+	return c.do(ctx, http.MethodGet, path, nil, v, prefer...)
+}
+
+// post sends body as JSON to path and decodes the JSON response into v.
+func (c *Client) post(ctx context.Context, path string, body, v any, prefer ...string) error {
+	return c.do(ctx, http.MethodPost, path, body, v, prefer...)
+}
+
+// do performs a request, retrying 429 (honoring Retry-After), 5xx, and
+// network errors with backoff.
+func (c *Client) do(ctx context.Context, method, path string, body, v any, prefer ...string) error {
+	var payload []byte
+	if body != nil {
+		var err error
+		if payload, err = json.Marshal(body); err != nil {
+			return err
+		}
+	}
 	url := path
 	if !strings.HasPrefix(path, "https://") && !strings.HasPrefix(path, "http://") {
 		url = c.baseURL + path
@@ -80,7 +98,7 @@ func (c *Client) get(ctx context.Context, path string, v any, prefer ...string) 
 	}
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		retryAfter, err := c.doGet(ctx, url, v, prefer)
+		retryAfter, err := c.attempt(ctx, method, url, payload, v, prefer)
 		if err == nil {
 			return nil
 		}
@@ -100,18 +118,25 @@ func (c *Client) get(ctx context.Context, path string, v any, prefer ...string) 
 	return lastErr
 }
 
-// doGet performs one attempt. retryAfter < 0 means don't retry; 0 means use backoff.
-func (c *Client) doGet(ctx context.Context, url string, v any, prefer []string) (retryAfter time.Duration, err error) {
+// attempt performs one try. retryAfter < 0 means don't retry; 0 means use backoff.
+func (c *Client) attempt(ctx context.Context, method, url string, payload []byte, v any, prefer []string) (retryAfter time.Duration, err error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return -1, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	var body io.Reader
+	if payload != nil {
+		body = bytes.NewReader(payload)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
 	if err != nil {
 		return -1, err
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
+	if payload != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	// Immutable IDs keep message IDs stable across folder moves. Every request
 	// must send this; see PLAN.md section 5.
 	req.Header.Set("Prefer", strings.Join(append([]string{`IdType="ImmutableId"`}, prefer...), ", "))

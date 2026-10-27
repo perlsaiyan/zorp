@@ -15,6 +15,7 @@ const (
 	MethodStatus     = "status"
 	MethodSync       = "sync"
 	MethodReloadAuth = "reload-auth"
+	MethodFetchBody  = "fetch-body"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -60,6 +61,10 @@ type Status struct {
 
 type SyncParams struct {
 	Full bool `json:"full,omitempty"`
+}
+
+type FetchBodyParams struct {
+	GraphID string `json:"graph_id"`
 }
 
 // Changed tells clients which folders' cached contents changed.

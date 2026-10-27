@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tom/zorp/internal/graph"
@@ -27,8 +28,10 @@ type Engine struct {
 	log   *slog.Logger
 	now   func() time.Time
 
+	// mu guards accountID: body fetches run concurrently with Sync.
+	mu            sync.Mutex
 	accountID     int64
-	foldersLoaded bool // folder list fetched at least once by this Engine
+	foldersLoaded bool // folder list fetched at least once by this Engine (Sync only)
 }
 
 func New(g *graph.Client, s *store.Store, opts Options, log *slog.Logger) *Engine {
@@ -36,7 +39,11 @@ func New(g *graph.Client, s *store.Store, opts Options, log *slog.Logger) *Engin
 }
 
 // AccountID is the local account ID, known after the first successful Sync.
-func (e *Engine) AccountID() int64 { return e.accountID }
+func (e *Engine) AccountID() int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.accountID
+}
 
 // FolderResult describes what one sync pass did to one folder.
 type FolderResult struct {
@@ -60,17 +67,18 @@ type Result struct {
 // run every pass.
 func (e *Engine) Sync(ctx context.Context, refreshFolders bool) (*Result, error) {
 	start := e.now()
-	if err := e.ensureAccount(ctx); err != nil {
+	accountID, err := e.ensureAccount(ctx)
+	if err != nil {
 		return nil, err
 	}
 	if refreshFolders || !e.foldersLoaded {
-		if err := e.syncFolders(ctx); err != nil {
+		if err := e.syncFolders(ctx, accountID); err != nil {
 			return nil, fmt.Errorf("syncing folder list: %w", err)
 		}
 		e.foldersLoaded = true
 	}
 
-	folders, err := e.store.Folders(ctx, e.accountID)
+	folders, err := e.store.Folders(ctx, accountID)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +89,7 @@ func (e *Engine) Sync(ctx context.Context, refreshFolders bool) (*Result, error)
 			e.log.Warn("configured sync folder not found", "folder", want)
 			continue
 		}
-		fr, err := e.syncFolder(ctx, f)
+		fr, err := e.syncFolder(ctx, accountID, f)
 		if err != nil {
 			return nil, fmt.Errorf("syncing %s: %w", f.Name, err)
 		}
@@ -93,20 +101,23 @@ func (e *Engine) Sync(ctx context.Context, refreshFolders bool) (*Result, error)
 
 // ResetSync deletes cached messages and delta links so the next Sync rebuilds.
 func (e *Engine) ResetSync(ctx context.Context) error {
-	if err := e.ensureAccount(ctx); err != nil {
+	accountID, err := e.ensureAccount(ctx)
+	if err != nil {
 		return err
 	}
-	return e.store.ResetSync(ctx, e.accountID)
+	return e.store.ResetSync(ctx, accountID)
 }
 
 // ensureAccount looks up the signed-in user and records the account locally.
-func (e *Engine) ensureAccount(ctx context.Context) error {
+func (e *Engine) ensureAccount(ctx context.Context) (int64, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.accountID != 0 {
-		return nil
+		return e.accountID, nil
 	}
 	me, err := e.graph.Me(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	upn := me.UserPrincipalName
 	if upn == "" {
@@ -114,13 +125,13 @@ func (e *Engine) ensureAccount(ctx context.Context) error {
 	}
 	id, err := e.store.UpsertAccount(ctx, upn, me.DisplayName)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	e.accountID = id
-	return nil
+	return id, nil
 }
 
-func (e *Engine) syncFolders(ctx context.Context) error {
+func (e *Engine) syncFolders(ctx context.Context, accountID int64) error {
 	remote, err := e.graph.MailFolders(ctx)
 	if err != nil {
 		return err
@@ -146,7 +157,7 @@ func (e *Engine) syncFolders(ctx context.Context) error {
 			TotalCount:    f.TotalItemCount,
 		})
 	}
-	return e.store.ReplaceFolders(ctx, e.accountID, folders)
+	return e.store.ReplaceFolders(ctx, accountID, folders)
 }
 
 func findFolder(folders []store.Folder, want string) (store.Folder, bool) {
@@ -163,15 +174,15 @@ func findFolder(folders []store.Folder, want string) (store.Folder, bool) {
 	return store.Folder{}, false
 }
 
-func (e *Engine) syncFolder(ctx context.Context, f store.Folder) (*FolderResult, error) {
-	fr, err := e.deltaPass(ctx, f)
+func (e *Engine) syncFolder(ctx context.Context, accountID int64, f store.Folder) (*FolderResult, error) {
+	fr, err := e.deltaPass(ctx, accountID, f)
 	if graph.IsSyncStateExpired(err) {
 		e.log.Info("delta link expired, resyncing folder", "folder", f.Name)
 		if err := e.store.SetDeltaLink(ctx, f.ID, "", time.Time{}); err != nil {
 			return nil, err
 		}
 		f.DeltaLink = ""
-		fr, err = e.deltaPass(ctx, f)
+		fr, err = e.deltaPass(ctx, accountID, f)
 	}
 	if err != nil {
 		return nil, err
@@ -184,7 +195,7 @@ func (e *Engine) syncFolder(ctx context.Context, f store.Folder) (*FolderResult,
 // link. Each page is applied in its own transaction; if the pass dies midway
 // the old link is still stored, and replaying pages is harmless because
 // upserts and removals are idempotent.
-func (e *Engine) deltaPass(ctx context.Context, f store.Folder) (*FolderResult, error) {
+func (e *Engine) deltaPass(ctx context.Context, accountID int64, f store.Folder) (*FolderResult, error) {
 	fr := &FolderResult{FolderID: f.ID, Folder: f.Name, Initial: f.DeltaLink == ""}
 	var since time.Time
 	link := f.DeltaLink
@@ -213,7 +224,7 @@ func (e *Engine) deltaPass(ctx context.Context, f store.Folder) (*FolderResult, 
 				seen[m.ID] = true
 			}
 		}
-		if err := e.store.ApplyDelta(ctx, e.accountID, f.ID, batch); err != nil {
+		if err := e.store.ApplyDelta(ctx, accountID, f.ID, batch); err != nil {
 			return nil, err
 		}
 		fr.Upserted += len(batch.Upserts)

@@ -2,7 +2,7 @@
 
 A fast, keyboard-driven terminal mail client for Microsoft 365, talking to Microsoft Graph directly (no IMAP). See [PLAN.md](PLAN.md) for the full design.
 
-**Status:** milestone 2 (sync). Sign-in, the sync daemon and the local cache work; there is no TUI yet.
+**Status:** milestone 3 (read-only TUI). You can browse and read mail; actions (delete, move, reply, ...) come next.
 
 ## Build
 
@@ -46,6 +46,24 @@ zorp logout
 
 Tokens are cached in `~/.local/share/zorp/token_cache.json` (mode 0600) and are never logged.
 
+## Using it
+
+Run `zorp` to open the mail client. The first run syncs before opening. Press `?` inside for all keys; the essentials:
+
+| Key | Action |
+|---|---|
+| `j` / `k` | move (or scroll, in the preview and reader) |
+| `Enter` / `v` | read the message full screen (`n`/`p` next/previous, `q` back) |
+| `Tab` | switch between folders, list and preview |
+| `g` then `i`/`s`/`d`/`a` | go to Inbox, Sent, Drafts, Archive |
+| `w` | preview on the right, at the bottom, or hidden |
+| `b` | show/hide the folder pane |
+| `Ctrl+R` | sync now |
+| `L` | log in again when the session has expired |
+| `q` | back / quit |
+
+Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
+
 ## Syncing
 
 A background daemon keeps a local SQLite cache (`~/.local/share/zorp/zorp.db`) in sync with Graph using delta queries, polling every 60 seconds. Commands that need it start it automatically; it logs to `~/.local/share/zorp/daemon.log`.
@@ -64,7 +82,8 @@ Sync settings in `config.toml` (defaults shown):
 [sync]
 interval = "60s"        # delta poll interval
 initial_days = 90       # first sync only fetches this much history; 0 = everything
-folders = ["inbox"]     # well-known names (inbox, sentitems, drafts, archive, ...) or folder names
+folders = ["inbox", "sentitems", "drafts", "archive"]  # well-known names (inbox, sentitems, drafts, archive, ...) or folder names
+prefetch_bodies = 500   # download bodies of the newest N messages in the background; older ones load when opened
 ```
 
 ## Admin consent

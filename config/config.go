@@ -39,6 +39,9 @@ type Sync struct {
 	// "sentitems", "drafts", "archive", ...) or display name. The folder
 	// list itself is always synced in full.
 	Folders []string `toml:"folders"`
+	// PrefetchBodies is how many of the newest messages get their bodies
+	// downloaded in the background; older ones are fetched when opened.
+	PrefetchBodies int `toml:"prefetch_bodies"`
 }
 
 type Paths struct {
@@ -54,9 +57,10 @@ func defaults() Config {
 	return Config{
 		Auth: Auth{Tenant: "organizations"},
 		Sync: Sync{
-			Interval:    60 * time.Second,
-			InitialDays: 90,
-			Folders:     []string{"inbox"},
+			Interval:       60 * time.Second,
+			InitialDays:    90,
+			Folders:        []string{"inbox", "sentitems", "drafts", "archive"},
+			PrefetchBodies: 500,
 		},
 	}
 }

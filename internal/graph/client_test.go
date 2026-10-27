@@ -2,9 +2,11 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +81,44 @@ func TestDoesNotRetry403(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Errorf("calls = %d, want 1", calls)
+	}
+}
+
+func TestMessageBodiesBatch(t *testing.T) {
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/$batch" {
+			t.Errorf("got %s %s", r.Method, r.URL.Path)
+		}
+		var req struct {
+			Requests []struct {
+				ID      string            `json:"id"`
+				URL     string            `json:"url"`
+				Headers map[string]string `json:"headers"`
+			} `json:"requests"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.Requests) != 3 {
+			t.Fatalf("batch body: %v, %d requests", err, len(req.Requests))
+		}
+		for _, sub := range req.Requests {
+			p := sub.Headers["Prefer"]
+			if !strings.Contains(p, `IdType="ImmutableId"`) || !strings.Contains(p, `outlook.body-content-type="text"`) {
+				t.Errorf("sub-request %s Prefer = %q", sub.ID, p)
+			}
+		}
+		// Responses arrive out of order; one is throttled.
+		w.Write([]byte(`{"responses":[
+			{"id":"2","status":200,"body":{"body":{"contentType":"text","content":"third"}}},
+			{"id":"0","status":200,"body":{"body":{"contentType":"text","content":"first"}}},
+			{"id":"1","status":429,"body":{"error":{"code":"TooManyRequests"}}}]}`))
+	})
+	got, err := c.MessageBodies(context.Background(), []string{"a", "b", "c"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["a"].Content != "first" || got["c"].Content != "third" {
+		t.Errorf("bodies = %+v", got)
+	}
+	if _, err := c.MessageBodies(context.Background(), make([]string, MaxBatch+1)); err == nil {
+		t.Error("oversized batch accepted")
 	}
 }
