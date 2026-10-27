@@ -16,9 +16,9 @@ import (
 )
 
 // Scopes requested so far. Kept to what shipped features need, so each
-// consent request in the work tenant is as small as possible. Mail.Send is
-// added when sending lands. MSAL adds openid, profile and offline_access itself.
-var Scopes = []string{"User.Read", "Mail.Read", "Mail.ReadWrite"}
+// consent request in the work tenant is as small as possible. MSAL adds
+// openid, profile and offline_access itself.
+var Scopes = []string{"User.Read", "Mail.Read", "Mail.ReadWrite", "Mail.Send"}
 
 // ErrNeedsLogin means there is no usable cached sign-in; run `zorp login`.
 var ErrNeedsLogin = errors.New("not signed in (run `zorp login`)")

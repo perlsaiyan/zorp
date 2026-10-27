@@ -97,6 +97,17 @@ func (c *Client) patch(ctx context.Context, path string, body, v any) error {
 // do performs a request, retrying 429 (honoring Retry-After), 5xx, and
 // network errors with backoff.
 func (c *Client) do(ctx context.Context, method, path string, body, v any, prefer ...string) error {
+	return c.doRetry(ctx, true, method, path, body, v, prefer...)
+}
+
+// postOnce is post for requests that must not be repeated, such as sending
+// mail: after a 5xx or network error the request may already have taken
+// effect, so only 429 (rejected before processing) is retried.
+func (c *Client) postOnce(ctx context.Context, path string, body, v any) error {
+	return c.doRetry(ctx, false, http.MethodPost, path, body, v)
+}
+
+func (c *Client) doRetry(ctx context.Context, idempotent bool, method, path string, body, v any, prefer ...string) error {
 	var payload []byte
 	if body != nil {
 		var err error
@@ -119,7 +130,7 @@ func (c *Client) do(ctx context.Context, method, path string, body, v any, prefe
 			return nil
 		}
 		lastErr = err
-		if retryAfter < 0 {
+		if retryAfter < 0 || (!idempotent && !isThrottled(err)) {
 			return err
 		}
 		if retryAfter == 0 {
@@ -182,6 +193,11 @@ func (c *Client) attempt(ctx context.Context, method, url string, payload []byte
 	default:
 		return -1, gerr
 	}
+}
+
+func isThrottled(err error) bool {
+	var gerr *Error
+	return errors.As(err, &gerr) && gerr.Status == http.StatusTooManyRequests
 }
 
 func sameOrigin(a, b string) bool {

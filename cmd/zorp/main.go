@@ -34,7 +34,8 @@ commands:
   login [--device | --browser]   sign in (default: device code, falling back to browser)
   logout                         forget the cached sign-in
   whoami                         show the signed-in user (calls Graph /me)
-  probe                          list the 10 newest Inbox messages (auth go/no-go check)
+  probe [--send]                 check sign-in and permissions, list the 10 newest Inbox messages;
+                                 --send also sends a test message to yourself
   search [--server] [-n N] QUERY search mail (same syntax as / in the TUI; --server searches Graph)
   sync [--full]                  sync now via the daemon (starting it if needed); --full rebuilds the cache
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
@@ -61,7 +62,7 @@ func main() {
 	case "whoami":
 		err = runWhoami(ctx)
 	case "probe":
-		err = runProbe(ctx)
+		err = runProbe(ctx, args)
 	case "sync":
 		err = runSync(ctx, args)
 	case "search":
@@ -322,7 +323,12 @@ func runWhoami(ctx context.Context) error {
 	return nil
 }
 
-func runProbe(ctx context.Context) error {
+func runProbe(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("probe", flag.ContinueOnError)
+	send := fs.Bool("send", false, "also send a test message to your own address")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 	_, a, err := newAuth()
 	if err != nil {
 		return err
@@ -364,6 +370,31 @@ func runProbe(ctx context.Context) error {
 		return fmt.Errorf("token lacks Mail.ReadWrite (granted: %s); add it to the app registration and grant consent", strings.Join(scopes, " "))
 	}
 	fmt.Println("ok")
+
+	fmt.Print("5. Sending (Mail.Send) ....... ")
+	if !hasScope(scopes, "Mail.Send") {
+		fmt.Println("MISSING")
+		return fmt.Errorf("token lacks Mail.Send (granted: %s); add it to the app registration and grant consent", strings.Join(scopes, " "))
+	}
+	if !*send {
+		fmt.Println("ok (granted; zorp probe --send sends yourself a test message)")
+	} else {
+		// Only ever to the signed-in user's own address.
+		self := me.Mail
+		if self == "" {
+			self = me.UserPrincipalName
+		}
+		err := g.SendMail(ctx, graph.OutgoingMessage{
+			Subject: "zorp probe: test message",
+			Body:    "This is a test message sent by `zorp probe --send` at " + time.Now().Format(time.RFC1123) + ".\nIt was sent only to you.",
+			To:      []string{self},
+		})
+		if err != nil {
+			fmt.Println("FAIL")
+			return err
+		}
+		fmt.Println("ok: test message sent to", self)
+	}
 	fmt.Println()
 
 	for _, m := range msgs {

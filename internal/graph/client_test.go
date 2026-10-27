@@ -143,3 +143,30 @@ func TestSearchMessagesQuotesAndPages(t *testing.T) {
 		t.Fatalf("got %d messages in %d calls, %v", len(msgs), calls, err)
 	}
 }
+
+func TestSendMailIsNotRetriedAfterServerError(t *testing.T) {
+	calls := 0
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests) // safe to retry
+			return
+		}
+		var body struct {
+			Message struct {
+				ToRecipients []Recipient `json:"toRecipients"`
+			} `json:"message"`
+			SaveToSentItems bool `json:"saveToSentItems"`
+		}
+		json.NewDecoder(r.Body).Decode(&body)
+		if len(body.Message.ToRecipients) != 1 || !body.SaveToSentItems {
+			t.Errorf("body = %+v", body)
+		}
+		w.WriteHeader(http.StatusBadGateway) // may have been sent: don't retry
+	})
+	err := c.SendMail(context.Background(), OutgoingMessage{Subject: "s", Body: "b", To: []string{"me@example.com"}})
+	if err == nil || calls != 2 {
+		t.Errorf("err=%v calls=%d, want an error after 2 calls", err, calls)
+	}
+}
