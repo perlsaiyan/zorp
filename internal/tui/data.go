@@ -8,10 +8,10 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/tom/zorp/config"
-	"github.com/tom/zorp/internal/daemon"
-	"github.com/tom/zorp/internal/ipc"
-	"github.com/tom/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/daemon"
+	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // maxListed caps how many messages of one folder are loaded into the list.

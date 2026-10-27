@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/tom/zorp/config"
-	"github.com/tom/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/ipc"
 )
 
 var ErrNotRunning = errors.New("daemon is not running")

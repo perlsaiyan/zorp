@@ -12,7 +12,7 @@ import (
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 
-	"github.com/tom/zorp/config"
+	"github.com/perlsaiyan/zorp/config"
 )
 
 // Scopes requested so far. Kept to what shipped features need, so each

@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tom/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/graph"
 )
 
 // FetchBody fetches and stores one message's body right away (the user is

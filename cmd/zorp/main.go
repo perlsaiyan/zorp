@@ -15,14 +15,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/tom/zorp/config"
-	"github.com/tom/zorp/internal/auth"
-	"github.com/tom/zorp/internal/daemon"
-	"github.com/tom/zorp/internal/graph"
-	"github.com/tom/zorp/internal/ipc"
-	"github.com/tom/zorp/internal/mailsync"
-	"github.com/tom/zorp/internal/store"
-	"github.com/tom/zorp/internal/tui"
+	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/auth"
+	"github.com/perlsaiyan/zorp/internal/daemon"
+	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/mailsync"
+	"github.com/perlsaiyan/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/tui"
 )
 
 const usage = `usage: zorp [command] [flags]

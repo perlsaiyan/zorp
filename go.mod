@@ -1,4 +1,4 @@
-module github.com/tom/zorp
+module github.com/perlsaiyan/zorp
 
 go 1.26.0
 

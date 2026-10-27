@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tom/zorp/internal/graph"
-	"github.com/tom/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // maxOpAttempts bounds retries of an op that keeps failing transiently, so

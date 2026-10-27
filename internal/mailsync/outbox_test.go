@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tom/zorp/internal/graph"
-	"github.com/tom/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // mutationServer fakes Graph's PATCH and move endpoints. Messages whose ID

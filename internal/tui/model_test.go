@@ -11,8 +11,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tom/zorp/config"
-	"github.com/tom/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 func newTestModel(t *testing.T) *Model {

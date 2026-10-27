@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tom/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/ipc"
 )
 
 // picker is the "move to folder" chooser: type to filter, arrows to choose.

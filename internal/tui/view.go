@@ -10,8 +10,8 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/tom/zorp/internal/ipc"
-	"github.com/tom/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // Basic ANSI colors, so zorp follows the terminal's theme.
