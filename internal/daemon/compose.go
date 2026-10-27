@@ -35,10 +35,8 @@ func (d *daemon) compose(ctx context.Context, params json.RawMessage) (ipc.Compo
 		if len(p.To)+len(p.Cc)+len(p.Bcc) == 0 {
 			return ipc.ComposeResult{}, errors.New("no recipients")
 		}
-		if d.cfg.Safety.SafeMode {
-			if err := d.onlyToSelf(ctx, p); err != nil {
-				return ipc.ComposeResult{}, err
-			}
+		if err := d.checkRecipients(ctx, p); err != nil {
+			return ipc.ComposeResult{}, err
 		}
 	}
 	id, err := d.engine.Compose(ctx, mailsync.Outgoing{
@@ -78,17 +76,26 @@ func (d *daemon) compose(ctx context.Context, params json.RawMessage) (ipc.Compo
 	return ipc.ComposeResult{DraftID: id}, err
 }
 
-func (d *daemon) onlyToSelf(ctx context.Context, p ipc.ComposeParams) error {
+// checkRecipients applies the send guardrail: unless sending is allowed,
+// every recipient must be the user or on safety.send_allow.
+func (d *daemon) checkRecipients(ctx context.Context, p ipc.ComposeParams) error {
+	if d.cfg.Safety.SendAllowed() {
+		return nil
+	}
 	acct, err := d.store.DefaultAccount(ctx)
 	if err != nil {
-		return fmt.Errorf("safe mode: can't check recipients before the first sync: %w", err)
+		return fmt.Errorf("guardrail: can't check recipients before the first sync: %w", err)
 	}
+	var blocked []string
 	for _, list := range [][]ipc.Address{p.To, p.Cc, p.Bcc} {
 		for _, a := range list {
-			if !strings.EqualFold(strings.TrimSpace(a.Addr), acct.UPN) {
-				return fmt.Errorf("safe mode: messages can only be sent to yourself (%s), not %s; save it as a draft, or set safety.safe_mode = false", acct.UPN, a.Addr)
+			if !d.cfg.Safety.MaySendTo(a.Addr, acct.UPN) {
+				blocked = append(blocked, a.Addr)
 			}
 		}
+	}
+	if len(blocked) > 0 {
+		return fmt.Errorf("guardrail: sending is limited to yourself and safety.send_allow; not allowed: %s (save it as a draft, or set safety.allow_send = true)", strings.Join(blocked, ", "))
 	}
 	return nil
 }

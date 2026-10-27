@@ -439,8 +439,16 @@ func (m *Model) composeLines(w, h int) []string {
 	for _, p := range c.problems {
 		lines = append(lines, styleError.Render(ansi.Truncate("  ✗ "+clean(p), w, "…")))
 	}
-	if m.status.SafeMode {
-		lines = append(lines, styleError.Render(ansi.Truncate("  Safe mode: sending only works to yourself ("+clean(m.account.UPN)+"); d saves a draft.", w, "…")))
+	var blocked []string
+	for _, list := range [][]store.Address{c.msg.To, c.msg.Cc, c.msg.Bcc} {
+		for _, a := range list {
+			if !m.cfg.Safety.MaySendTo(a.Addr, m.account.UPN) {
+				blocked = append(blocked, a.Addr)
+			}
+		}
+	}
+	if len(blocked) > 0 {
+		lines = append(lines, styleError.Render(ansi.Truncate("  Guardrail: can't send to "+clean(strings.Join(blocked, ", "))+" (safety.allow_send / send_allow); d saves a draft.", w, "…")))
 	}
 	if c.wasHTML {
 		lines = append(lines, styleFaint.Render(ansi.Truncate("  This draft was formatted (HTML); saving it makes it plain text.", w, "…")))

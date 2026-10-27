@@ -298,6 +298,9 @@ func runDaemon(ctx context.Context, args []string) error {
 		if st.LastSync != 0 {
 			fmt.Printf("last sync: %s\n", time.Unix(st.LastSync, 0).Format(time.DateTime))
 		}
+		if len(st.Guards) > 0 {
+			fmt.Printf("guarded:   %s (see [safety] in the README)\n", strings.Join(st.Guards, ", "))
+		}
 		if st.LastError != "" {
 			fmt.Printf("error:     %s\n", st.LastError)
 		}

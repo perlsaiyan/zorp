@@ -66,8 +66,10 @@ type Status struct {
 	LastSync  int64  `json:"last_sync,omitempty"` // unix seconds
 	LastError string `json:"last_error,omitempty"`
 	PID       int    `json:"pid"`
-	Pending   int    `json:"pending"`   // queued changes not yet sent to Graph
-	SafeMode  bool   `json:"safe_mode"` // deletes refused, moves only to the scratch folder
+	Pending   int    `json:"pending"` // queued changes not yet sent to Graph
+	// Guards lists the guardrails in force: "send", "move", "delete"
+	// (see config.Safety).
+	Guards []string `json:"guards,omitempty"`
 }
 
 type SyncParams struct {

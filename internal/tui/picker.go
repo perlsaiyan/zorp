@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -8,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/render"
 )
@@ -152,8 +154,8 @@ func (m *Model) pickerLines(w, h int) []string {
 		styleFaint.Render("  type to filter · ↑/↓ choose · enter " + action + " · esc cancel"),
 		"",
 	}
-	if p.kind == pickMove && m.status.SafeMode {
-		lines = append(lines, styleError.Render("  Safe mode: only "+m.cfg.Safety.ScratchFolder+" is allowed"), "")
+	if p.kind == pickMove && slices.Contains(m.status.Guards, config.GuardMove) {
+		lines = append(lines, styleError.Render("  Guardrail: only "+m.cfg.Safety.ScratchFolder+" is allowed (safety.allow_move)"), "")
 	}
 	room := max(h-len(lines), 0)
 	top := clamp(p.cursor-room+1, 0, max(len(p.matches)-room, 0))

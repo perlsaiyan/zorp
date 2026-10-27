@@ -382,8 +382,8 @@ func (m *Model) topBar() string {
 	if m.status.Pending > 0 {
 		right = fmt.Sprintf("%d pending  ", m.status.Pending) + right
 	}
-	if m.status.SafeMode {
-		right = "SAFE MODE  " + right
+	if len(m.status.Guards) > 0 {
+		right = "guarded: " + strings.Join(m.status.Guards, " ") + "  " + right
 	}
 	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
 	if gap < 1 {

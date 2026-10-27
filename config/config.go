@@ -51,11 +51,83 @@ type Sync struct {
 
 // Safety limits what zorp may change while it's being developed against a
 // real mailbox. The daemon enforces it, so it covers every client.
+//
+// SafeMode sets the default for each guardrail; the Allow* settings
+// override it one at a time. Read/unread and flag are always allowed.
 type Safety struct {
-	// SafeMode refuses deletes and only allows moves (including archive)
-	// into ScratchFolder. Read/unread and flag are always allowed.
-	SafeMode      bool   `toml:"safe_mode"`
+	// SafeMode turns on every guardrail that isn't set explicitly.
+	SafeMode bool `toml:"safe_mode"`
+	// AllowDelete permits deleting (moving to Deleted Items).
+	AllowDelete *bool `toml:"allow_delete"`
+	// AllowMove permits moves (including archive) to any folder; when
+	// false, only ScratchFolder is allowed.
+	AllowMove     *bool  `toml:"allow_move"`
 	ScratchFolder string `toml:"scratch_folder"`
+	// AllowSend permits sending to anyone; when false, only to yourself and
+	// to SendAllow entries (addresses, or domains like "example.com").
+	AllowSend *bool    `toml:"allow_send"`
+	SendAllow []string `toml:"send_allow"`
+}
+
+func (s Safety) allowed(v *bool) bool {
+	if v != nil {
+		return *v
+	}
+	return !s.SafeMode
+}
+
+// Guard names, as reported by Guards.
+const (
+	GuardDelete = "delete"
+	GuardMove   = "move"
+	GuardSend   = "send"
+)
+
+func (s Safety) DeleteAllowed() bool { return s.allowed(s.AllowDelete) }
+func (s Safety) MoveAllowed() bool   { return s.allowed(s.AllowMove) }
+func (s Safety) SendAllowed() bool   { return s.allowed(s.AllowSend) }
+
+// Guards lists the guardrails in force.
+func (s Safety) Guards() []string {
+	var g []string
+	if !s.SendAllowed() {
+		g = append(g, GuardSend)
+	}
+	if !s.MoveAllowed() {
+		g = append(g, GuardMove)
+	}
+	if !s.DeleteAllowed() {
+		g = append(g, GuardDelete)
+	}
+	return g
+}
+
+// MayMoveTo reports whether a move into the named folder is allowed.
+func (s Safety) MayMoveTo(folder string) bool {
+	return s.MoveAllowed() || strings.EqualFold(folder, s.ScratchFolder)
+}
+
+// MaySendTo reports whether mail may be sent to addr. self is the
+// signed-in user's address.
+func (s Safety) MaySendTo(addr, self string) bool {
+	if s.SendAllowed() {
+		return true
+	}
+	addr = strings.ToLower(strings.TrimSpace(addr))
+	if addr == "" {
+		return false
+	}
+	if strings.EqualFold(addr, self) {
+		return true
+	}
+	_, domain, _ := strings.Cut(addr, "@")
+	for _, a := range s.SendAllow {
+		a = strings.ToLower(strings.TrimSpace(a))
+		if a == addr || strings.TrimPrefix(a, "@") == domain {
+			return true
+		}
+	}
+	return false
 }
 
 // Keys adjusts what keys do in the TUI.

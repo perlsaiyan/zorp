@@ -108,7 +108,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		requests:  make(chan syncRequest),
 		kick:      make(chan struct{}, 1),
 		flushKick: make(chan struct{}, 1),
-		status:    ipc.Status{State: ipc.StateStarting, PID: os.Getpid(), SafeMode: cfg.Safety.SafeMode},
+		status:    ipc.Status{State: ipc.StateStarting, PID: os.Getpid(), Guards: cfg.Safety.Guards()},
 	}
 	d.server = ipc.NewServer(d.handle, log)
 
@@ -482,8 +482,8 @@ func (d *daemon) mutate(ctx context.Context, p ipc.MutateParams) (ipc.MutateResu
 		case ipc.OpArchive:
 			dest, err = d.store.FolderByWellKnown(ctx, accountID, "archive")
 		case ipc.OpDelete:
-			if d.cfg.Safety.SafeMode {
-				return ipc.MutateResult{}, errors.New("safe mode: delete is disabled (set safety.safe_mode = false to allow it)")
+			if !d.cfg.Safety.DeleteAllowed() {
+				return ipc.MutateResult{}, errors.New("guardrail: deleting is off (set safety.allow_delete = true to allow it)")
 			}
 			dest, err = d.store.FolderByWellKnown(ctx, accountID, "deleteditems")
 		}
@@ -493,8 +493,8 @@ func (d *daemon) mutate(ctx context.Context, p ipc.MutateParams) (ipc.MutateResu
 		if err != nil {
 			return ipc.MutateResult{}, err
 		}
-		if d.cfg.Safety.SafeMode && !strings.EqualFold(dest.Name, d.cfg.Safety.ScratchFolder) {
-			return ipc.MutateResult{}, fmt.Errorf("safe mode: moves are only allowed to %q, not %q", d.cfg.Safety.ScratchFolder, dest.Name)
+		if !d.cfg.Safety.MayMoveTo(dest.Name) {
+			return ipc.MutateResult{}, fmt.Errorf("guardrail: moves are only allowed to %q, not %q (set safety.allow_move = true to allow any)", d.cfg.Safety.ScratchFolder, dest.Name)
 		}
 		m = store.Mutation{Kind: store.OpMove, Dest: dest}
 	default:

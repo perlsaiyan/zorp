@@ -173,17 +173,31 @@ delete_archives = true  # d archives instead of deleting; X still deletes, after
 mouse = true            # click, scroll, drag dividers; Shift+drag to select text
 ```
 
-## Safe mode
+## Safety guardrails
 
-While zorp is new, it starts in **safe mode**: deletes are refused, moves (including archive) are only allowed into a scratch folder, and mail can only be sent to yourself. Drafts can still be saved for anyone. Read/unread and flag always work. Create a folder called `zorp-test` in Outlook to try moves. When you trust it:
+zorp starts with three guardrails on. The daemon enforces them, so they cover every client, including the MCP server later:
+
+| Guardrail | When on | Setting to lift it |
+|---|---|---|
+| send | mail can only be sent to yourself and to `send_allow` entries | `allow_send = true` |
+| move | moves and archive only go to `scratch_folder` | `allow_move = true` |
+| delete | deleting is refused | `allow_delete = true` |
+
+Drafts can always be saved, and read/unread and flag always work. The top bar shows the guardrails in force (`guarded: send move delete`), as does `zorp daemon status`.
+
+`safe_mode` sets the default for all three, and each `allow_*` setting overrides it:
 
 ```toml
 [safety]
-safe_mode = false           # default true
+safe_mode = true                  # default; false lifts every guardrail not set below
+allow_move = true                 # e.g. archive and move freely...
+allow_send = false                # ...but keep sending restricted
+send_allow = ["example.com", "friend@example.org"]   # besides yourself
+allow_delete = false
 scratch_folder = "zorp-test"
 ```
 
-Restart the daemon (`zorp daemon stop`) after changing this.
+Restart the daemon (`zorp daemon stop`) after changing these.
 
 ## Admin consent
 
