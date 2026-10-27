@@ -39,9 +39,15 @@ func (d *daemon) compose(ctx context.Context, params json.RawMessage) (ipc.Compo
 			return ipc.ComposeResult{}, err
 		}
 	}
+	switch p.Format {
+	case "", compose.FormatText, compose.FormatMarkdown:
+	default:
+		return ipc.ComposeResult{}, fmt.Errorf("unknown format %q", p.Format)
+	}
 	id, err := d.engine.Compose(ctx, mailsync.Outgoing{
-		Kind: kind,
-		Ref:  p.Ref,
+		Kind:   kind,
+		Format: p.Format,
+		Ref:    p.Ref,
 		Draft: graph.Draft{
 			Subject: p.Subject,
 			Body:    p.Body,
@@ -139,6 +145,7 @@ func (d *daemon) getDraft(ctx context.Context, params json.RawMessage) (ipc.Draf
 		Cc:          fromGraph(dd.Draft.Cc),
 		Bcc:         fromGraph(dd.Draft.Bcc),
 		Body:        dd.Draft.Body,
+		Format:      dd.Format,
 		WasHTML:     dd.WasHTML,
 		Attachments: attachmentInfo(dd.Attachments),
 	}, nil

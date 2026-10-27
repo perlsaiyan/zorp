@@ -17,6 +17,8 @@ import (
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/daemon"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/markdown"
+	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -78,11 +80,11 @@ func (m *Model) startCompose(kind compose.Kind) tea.Cmd {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 		c := &composing{kind: kind, ref: orig.GraphID}
-		sig := cfg.Compose.Signature
+		sig, format := cfg.Compose.Signature, defaultFormat(cfg)
 		var msg compose.Message
 		switch kind {
 		case compose.New:
-			msg = compose.NewMessage(sig)
+			msg = compose.NewMessage(sig, format)
 		case compose.Reply, compose.ReplyAll, compose.Forward:
 			text, err := originalText(ctx, cfg, st, orig)
 			if err != nil {
@@ -90,7 +92,7 @@ func (m *Model) startCompose(kind compose.Kind) tea.Cmd {
 			}
 			o := compose.Original{Message: orig, Text: text}
 			if kind == compose.Forward {
-				msg = compose.ForwardOf(o, sig)
+				msg = compose.ForwardOf(o, sig, format)
 				if orig.HasAttachments {
 					var atts []ipc.AttachmentInfo
 					if err := callDaemon(ctx, cfg, ipc.MethodAttachList, ipc.MessageRef{GraphID: orig.GraphID}, &atts); err != nil {
@@ -103,14 +105,17 @@ func (m *Model) startCompose(kind compose.Kind) tea.Cmd {
 					}
 				}
 			} else {
-				msg = compose.ReplyTo(o, kind == compose.ReplyAll, []string{self}, sig)
+				msg = compose.ReplyTo(o, kind == compose.ReplyAll, []string{self}, sig, format)
 			}
 		case compose.EditDraft:
 			var d ipc.DraftInfo
 			if err := callDaemon(ctx, cfg, ipc.MethodGetDraft, ipc.MessageRef{GraphID: orig.GraphID}, &d); err != nil {
 				return composeReadyMsg{err: err}
 			}
-			msg = compose.Message{To: fromIPC(d.To), Cc: fromIPC(d.Cc), Bcc: fromIPC(d.Bcc), Subject: d.Subject, Body: d.Body}
+			if d.Format != "" {
+				format = d.Format
+			}
+			msg = compose.Message{To: fromIPC(d.To), Cc: fromIPC(d.Cc), Bcc: fromIPC(d.Bcc), Subject: d.Subject, Format: format, Body: d.Body}
 			c.existing, c.wasHTML = d.Attachments, d.WasHTML
 		}
 		existing := make([]compose.Existing, 0, len(c.existing))
@@ -254,6 +259,21 @@ func (c *composing) hasExisting(name string) bool {
 	return false
 }
 
+// format is the message's Format: line, else the configured default.
+func (c *composing) format(cfg *config.Config) string {
+	if c.msg.Format != "" {
+		return c.msg.Format
+	}
+	return defaultFormat(cfg)
+}
+
+func defaultFormat(cfg *config.Config) string {
+	if cfg.Compose.Format == compose.FormatText {
+		return compose.FormatText
+	}
+	return compose.FormatMarkdown
+}
+
 func (c *composing) recipients() int { return len(c.msg.To) + len(c.msg.Cc) + len(c.msg.Bcc) }
 
 // endCompose deletes the message file and closes the review screen.
@@ -308,6 +328,7 @@ func (m *Model) submitCmd(send bool) tea.Cmd {
 		Cc:      toIPC(c.msg.Cc),
 		Bcc:     toIPC(c.msg.Bcc),
 		Subject: c.msg.Subject,
+		Format:  c.format(m.cfg),
 		Body:    c.msg.Body,
 		Attach:  c.attach,
 		Keep:    c.msg.Attached,
@@ -415,6 +436,12 @@ func (m *Model) composeLines(w, h int) []string {
 		lines = append(lines, field("Bcc", clean(compose.FormatAddresses(c.msg.Bcc))))
 	}
 	lines = append(lines, field("Subject", clean(c.msg.Subject)))
+	format := c.format(m.cfg)
+	if format == compose.FormatMarkdown {
+		lines = append(lines, field("Format", "Markdown, sent formatted (HTML)"))
+	} else {
+		lines = append(lines, field("Format", "plain text"))
+	}
 	var atts []string
 	for _, name := range c.msg.Attached {
 		size := ""
@@ -451,12 +478,27 @@ func (m *Model) composeLines(w, h int) []string {
 		lines = append(lines, styleError.Render(ansi.Truncate("  Guardrail: can't send to "+clean(strings.Join(blocked, ", "))+" (safety.allow_send / send_allow); d saves a draft.", w, "…")))
 	}
 	if c.wasHTML {
-		lines = append(lines, styleFaint.Render(ansi.Truncate("  This draft was formatted (HTML); saving it makes it plain text.", w, "…")))
+		lines = append(lines, styleFaint.Render(ansi.Truncate("  This draft was written elsewhere with formatting; editing it here keeps the text, not the formatting.", w, "…")))
 	}
 	lines = append(lines, styleFaint.Render("  "+strings.Repeat("─", max(min(w-4, 72), 0))))
 	bodyW := max(w-4, 10)
-	for _, l := range strings.Split(ansi.Wrap(cleanBody(c.msg.Body), bodyW, ""), "\n") {
-		lines = append(lines, "  "+l)
+	if format == compose.FormatMarkdown {
+		// Show what the recipient will see.
+		mine, hasRef := markdown.SplitRef(c.msg.Body)
+		for _, l := range render.FromHTML(markdown.ToHTML(mine)).Render(bodyW, render.Options{ShowQuoted: true}) {
+			lines = append(lines, "  "+l)
+		}
+		if hasRef && c.kind != compose.New {
+			what := "The original message"
+			if c.kind == compose.EditDraft {
+				what = "The quoted history"
+			}
+			lines = append(lines, "", styleFaint.Render(ansi.Truncate("  ··· "+what+" follows here, with its formatting", w, "…")))
+		}
+	} else {
+		for _, l := range strings.Split(ansi.Wrap(cleanBody(c.msg.Body), bodyW, ""), "\n") {
+			lines = append(lines, "  "+l)
+		}
 	}
 	return padLines(lines, w, h)
 }

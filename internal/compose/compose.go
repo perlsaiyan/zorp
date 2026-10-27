@@ -16,7 +16,8 @@
 //
 // Header lines starting with "#" are comments. "Attached:" lines list
 // attachments already on the message (a forward's or a draft's); deleting
-// one removes that attachment.
+// one removes that attachment. "Format: markdown" (or "text") picks how the
+// body is sent; see package markdown.
 package compose
 
 import (
@@ -25,6 +26,7 @@ import (
 	"net/mail"
 	"strings"
 
+	"github.com/perlsaiyan/zorp/internal/markdown"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
@@ -44,10 +46,17 @@ const (
 type Message struct {
 	To, Cc, Bcc []store.Address
 	Subject     string
+	Format      string // FormatMarkdown or FormatText
 	Body        string
 	Attach      []string // files to attach, as written (may start with ~)
 	Attached    []string // names of existing attachments to keep
 }
+
+// Body formats.
+const (
+	FormatMarkdown = "markdown" // sent as HTML
+	FormatText     = "text"
+)
 
 // Existing is an attachment already on the message being written.
 type Existing struct {
@@ -70,6 +79,9 @@ func File(kind Kind, m Message, existing []Existing) string {
 	b.WriteString("Cc: " + FormatAddresses(m.Cc) + "\n")
 	b.WriteString("Bcc: " + FormatAddresses(m.Bcc) + "\n")
 	b.WriteString("Subject: " + oneLine(m.Subject) + "\n")
+	if m.Format != "" {
+		b.WriteString("Format: " + m.Format + "\n")
+	}
 	for _, a := range existing {
 		b.WriteString("Attached: " + oneLine(a.Name) + "\n")
 	}
@@ -150,6 +162,15 @@ func Parse(text string) (Message, error) {
 			if f.value != "" {
 				m.Attach = append(m.Attach, f.value)
 			}
+		case "format":
+			switch v := strings.ToLower(f.value); v {
+			case FormatMarkdown, FormatText:
+				m.Format = v
+			case "md":
+				m.Format = FormatMarkdown
+			default:
+				errs = append(errs, fmt.Sprintf("Format: %q isn't markdown or text", f.value))
+			}
 		case "attached":
 			if f.value != "" {
 				m.Attached = append(m.Attached, f.value)
@@ -215,13 +236,16 @@ type Original struct {
 }
 
 // NewMessage is the template for a fresh message.
-func NewMessage(signature string) Message {
-	return Message{Body: "\n" + sigBlock(signature)}
+func NewMessage(signature, format string) Message {
+	return Message{Format: format, Body: "\n" + sigBlock(signature)}
 }
 
 // ReplyTo is the template for a reply. self holds the user's addresses, so
 // they are left out of the recipients.
-func ReplyTo(orig Original, all bool, self []string, signature string) Message {
+//
+// In Markdown, the quote is preceded by markdown.RefMarker: it's there to
+// read while writing, and the server's formatted copy is sent instead.
+func ReplyTo(orig Original, all bool, self []string, signature, format string) Message {
 	isSelf := func(a store.Address) bool {
 		for _, s := range self {
 			if strings.EqualFold(a.Addr, s) {
@@ -264,14 +288,15 @@ func ReplyTo(orig Original, all bool, self []string, signature string) Message {
 		Subject: prefixed("Re: ", oneLine(orig.Subject)),
 	}
 	m.Cc = keep(cc, true)
-	m.Body = "\n" + sigBlock(signature) + "\n" + attribution(orig) + "\n" + quote(orig.Text)
+	m.Format = format
+	m.Body = "\n" + sigBlock(signature) + "\n" + refMarker(format) + attribution(orig) + "\n" + quote(orig.Text)
 	return m
 }
 
 // ForwardOf is the template for forwarding a message.
-func ForwardOf(orig Original, signature string) Message {
+func ForwardOf(orig Original, signature, format string) Message {
 	var b strings.Builder
-	b.WriteString("\n" + sigBlock(signature) + "\n")
+	b.WriteString("\n" + sigBlock(signature) + "\n" + refMarker(format))
 	b.WriteString("---------- Forwarded message ---------\n")
 	b.WriteString("From: " + FormatAddress(orig.From) + "\n")
 	b.WriteString("Date: " + orig.ReceivedAt.Local().Format("Mon, 2 Jan 2006 at 15:04") + "\n")
@@ -281,7 +306,14 @@ func ForwardOf(orig Original, signature string) Message {
 		b.WriteString("Cc: " + FormatAddresses(orig.Cc) + "\n")
 	}
 	b.WriteString("\n" + strings.TrimRight(orig.Text, "\n") + "\n")
-	return Message{Subject: prefixed("Fw: ", oneLine(orig.Subject)), Body: b.String()}
+	return Message{Subject: prefixed("Fw: ", oneLine(orig.Subject)), Format: format, Body: b.String()}
+}
+
+func refMarker(format string) string {
+	if format == FormatMarkdown {
+		return markdown.RefMarker + "\n"
+	}
+	return ""
 }
 
 func sigBlock(signature string) string {

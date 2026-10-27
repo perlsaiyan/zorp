@@ -692,3 +692,29 @@ func TestStaleRefreshDoesNotSwitchFolderBack(t *testing.T) {
 		t.Errorf("stale inbox refresh switched folder %d -> %d (%d msgs)", sent, m.folderID, len(m.msgs))
 	}
 }
+
+func TestMarkdownReviewShowsFormattedResult(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.Paths.ComposeDir = t.TempDir()
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	c := prepareCompose(t, m, "r")
+	tmpl, _ := os.ReadFile(c.path)
+	if !strings.Contains(string(tmpl), "Format: markdown\n") || !strings.Contains(string(tmpl), "<!-- zorp: the original below") {
+		t.Fatalf("template:\n%s", tmpl)
+	}
+	editFile(t, c, func(s string) string {
+		s = strings.Replace(s, "To: \n", "To: a@example.com\n", 1)
+		head, body, _ := strings.Cut(s, "\n\n")
+		return head + "\n\nHi **there**\n\n- one\n- two\n" + body
+	})
+	m.editorDone(nil)
+	view := ansi.Strip(m.View().Content)
+	for _, want := range []string{"Format:   Markdown, sent formatted (HTML)", "Hi there", "• one", "The original message follows here"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("review missing %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "**there**") || strings.Contains(view, "> line one") {
+		t.Errorf("review shows the source, not the result:\n%s", view)
+	}
+}

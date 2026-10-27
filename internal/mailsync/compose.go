@@ -11,19 +11,21 @@ import (
 
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/markdown"
 	"github.com/perlsaiyan/zorp/internal/render"
 )
 
 // Outgoing is a message to send or save as a draft.
 type Outgoing struct {
-	Kind  compose.Kind
-	Ref   string // message replied to or forwarded, or the draft being edited
-	Draft graph.Draft
+	Kind   compose.Kind
+	Format string // compose.FormatMarkdown or FormatText
+	Ref    string // message replied to or forwarded, or the draft being edited
+	Draft  graph.Draft
 	// Attach are absolute paths of files to attach.
 	Attach []string
 	// Keep names the existing attachments (of a forward or draft) to keep;
-	// others are removed. Inline attachments are always removed, as the
-	// plain-text body can't show them.
+	// others are removed. Inline attachments are removed unless the body
+	// keeps the original's formatted HTML.
 	Keep []string
 	Send bool
 }
@@ -50,6 +52,11 @@ type fileAttachment struct {
 // ID (empty when sent directly). Replies and forwards are created from the
 // original, so they thread correctly; their recipients, subject and body
 // are then replaced with the user's.
+//
+// In Markdown format the body is sent as HTML. If it still has the
+// reference marker (see markdown.SplitRef), only the text above it is the
+// message, and the reply's or forward's formatted history (from the server,
+// or remembered for a draft) goes below it.
 func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 	// Read attachments before creating anything, so a bad path changes nothing.
 	files := make([]fileAttachment, 0, len(o.Attach))
@@ -61,22 +68,42 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 		files = append(files, f)
 	}
 
+	source := o.Draft.Body
+	mine, hasRef := source, false
+	if o.Format == compose.FormatMarkdown {
+		mine, hasRef = markdown.SplitRef(source)
+		o.Draft.Body, o.Draft.HTML = markdown.ToHTML(mine), true
+	}
+	mineHTML := o.Draft.Body
+
 	if o.Kind == compose.New && o.Send && len(files) == 0 {
 		return "", e.graph.SendMail(ctx, o.Draft)
 	}
 
-	var id string
+	var id, history string
 	var err error
 	switch o.Kind {
 	case compose.New:
 		id, err = e.graph.CreateDraft(ctx, o.Draft)
 	case compose.Reply, compose.ReplyAll, compose.Forward:
 		kind := map[compose.Kind]string{compose.Reply: graph.ReplyOne, compose.ReplyAll: graph.ReplyAll, compose.Forward: graph.Forward}[o.Kind]
-		if id, err = e.graph.CreateResponse(ctx, o.Ref, kind); err == nil {
+		id, err = e.graph.CreateResponse(ctx, o.Ref, kind)
+		if err == nil && hasRef {
+			var d *graph.DraftMessage
+			if d, err = e.graph.GetDraft(ctx, id); err == nil {
+				history = d.Body.Content
+				o.Draft.Body = markdown.Above(mineHTML, history)
+			}
+		}
+		if err == nil {
 			err = e.graph.UpdateDraft(ctx, id, o.Draft)
 		}
 	case compose.EditDraft:
 		id = o.Ref
+		if sc := e.loadSidecar(id); hasRef && sc != nil && sc.History != "" {
+			history = sc.History
+			o.Draft.Body = markdown.Above(mineHTML, history)
+		}
 		err = e.graph.UpdateDraft(ctx, id, o.Draft)
 	default:
 		return "", fmt.Errorf("unknown message kind %q", o.Kind)
@@ -89,7 +116,7 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 	}
 
 	if o.Kind == compose.Forward || o.Kind == compose.EditDraft {
-		if err := e.pruneAttachments(ctx, id, o.Keep); err != nil {
+		if err := e.pruneAttachments(ctx, id, o.Keep, o.Format == compose.FormatMarkdown && history != ""); err != nil {
 			return id, &DraftKept{id, err}
 		}
 	}
@@ -99,17 +126,22 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 		}
 	}
 	if !o.Send {
+		e.saveSidecar(ctx, id, o.Format, source, history)
 		return id, nil
 	}
 	if err := e.graph.SendDraft(ctx, id); err != nil {
+		e.saveSidecar(ctx, id, o.Format, source, history)
 		return id, &DraftKept{id, err}
 	}
+	e.removeSidecar(id)
 	return id, nil
 }
 
-// pruneAttachments removes a draft's inline attachments and any not named
-// in keep (matched by name, as many times as each name is listed).
-func (e *Engine) pruneAttachments(ctx context.Context, id string, keep []string) error {
+// pruneAttachments removes attachments not named in keep (matched by
+// name, as many times as each name is listed). Inline attachments are
+// removed too, unless the body keeps the original's HTML (keepInline),
+// whose images refer to them.
+func (e *Engine) pruneAttachments(ctx context.Context, id string, keep []string, keepInline bool) error {
 	atts, err := e.graph.Attachments(ctx, id)
 	if err != nil {
 		return err
@@ -120,6 +152,9 @@ func (e *Engine) pruneAttachments(ctx context.Context, id string, keep []string)
 	}
 	for _, a := range atts {
 		name := strings.Join(strings.Fields(a.Name), " ") // as listed in the compose file
+		if a.IsInline && keepInline {
+			continue
+		}
 		if !a.IsInline && want[name] > 0 {
 			want[name]--
 			continue
@@ -159,7 +194,8 @@ func readAttachment(path string) (fileAttachment, error) {
 // DraftDetails is a draft's content for editing as text.
 type DraftDetails struct {
 	Draft       graph.Draft
-	WasHTML     bool
+	Format      string             // set when the draft's source was remembered
+	WasHTML     bool               // converted from HTML: formatting was lost
 	Attachments []graph.Attachment // not inline
 }
 
@@ -179,7 +215,11 @@ func (e *Engine) GetDraft(ctx context.Context, id string) (*DraftDetails, error)
 		Bcc:     emailAddrs(d.BccRecipients),
 		Body:    normalizeText(d.Body.Content),
 	}}
-	if strings.EqualFold(d.Body.ContentType, "html") {
+	switch sc := e.loadSidecar(id); {
+	case sc != nil && sc.ChangeKey != "" && sc.ChangeKey == d.ChangeKey:
+		// Saved by zorp and not edited since: edit what was written.
+		out.Draft.Body, out.Format = sc.Source, sc.Format
+	case strings.EqualFold(d.Body.ContentType, "html"):
 		out.WasHTML = true
 		out.Draft.Body = render.FromHTML(d.Body.Content).Text(76)
 	}

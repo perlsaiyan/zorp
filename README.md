@@ -123,9 +123,12 @@ On Mon, 26 Oct 2026 at 09:00, Alice Example <alice@example.com> wrote:
 - Headers on top, then a blank line, then the message. Separate addresses with commas or semicolons.
 - Add one `Attach:` line per file (up to 150 MB each). Forwards and drafts list their existing attachments as `Attached:` lines; delete a line to drop that attachment.
 - Replies go to the sender's Reply-To address when it has one. Reply-all copies everyone else and leaves you out.
-- Messages are sent as plain text. Replies and forwards still thread with the original in Outlook.
+- Messages are written in **Markdown** and sent formatted (HTML): `**bold**`, lists, tables, `code`, links, headings, `> quotes`. Line breaks are kept as you type them. Raw HTML in the text is dropped. Put `Format: text` in the headers (or set `compose.format = "text"`) to send plain text instead.
+- In a Markdown reply or forward, the quoted original below the `<!-- zorp: … -->` line is there to read while you write. It isn't sent; Outlook's formatted copy of the original goes under your message instead, the way Outlook itself replies. Delete that line to send the text below it as written, for example to answer inline between quoted lines.
+- Drafts saved from zorp reopen (`e`) exactly as you wrote them. A draft written or changed elsewhere opens as plain text and loses its formatting.
+- Replies and forwards thread with the original in Outlook.
 
-When you quit the editor, zorp shows the message for review. Press `y` to send, `d` to save to Drafts, `e` to edit again, or `q` to discard. Quitting the editor without changes discards a new message.
+When you quit the editor, zorp shows the message for review, formatted as the recipient will see it. Press `y` to send, `d` to save to Drafts, `e` to edit again, or `q` to discard. Quitting the editor without changes discards a new message.
 
 If sending fails partway, the message is kept in Drafts. Open it there with `e` to try again.
 
@@ -133,6 +136,7 @@ If sending fails partway, the message is kept in Drafts. Open it there with `e` 
 [compose]
 signature = "Sam Rivera\nExample Corp"   # added above the quoted text
 editor = "nvim"                      # overrides $VISUAL / $EDITOR
+format = "markdown"                  # or "text"
 
 [ui]
 save_dir = "~/Downloads"             # where s saves attachments

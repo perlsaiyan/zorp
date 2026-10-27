@@ -19,6 +19,9 @@ type Options struct {
 	Folders []string
 	// InitialDays limits a from-scratch pass to recent mail; 0 means everything.
 	InitialDays int
+	// DraftDir keeps the Markdown source of drafts saved from zorp, so they
+	// can be edited again as written.
+	DraftDir string
 }
 
 type Engine struct {

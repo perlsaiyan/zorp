@@ -150,6 +150,9 @@ type Compose struct {
 	Editor string `toml:"editor"`
 	// Signature is added to new messages, replies and forwards.
 	Signature string `toml:"signature"`
+	// Format is how messages are written by default: "markdown" (sent as
+	// HTML) or "text". A message's own "Format:" line overrides it.
+	Format string `toml:"format"`
 }
 
 type Paths struct {
@@ -173,9 +176,10 @@ func defaults() Config {
 			Folders:        []string{"inbox", "sentitems", "drafts", "archive"},
 			PrefetchBodies: 500,
 		},
-		Safety: Safety{SafeMode: true, ScratchFolder: "zorp-test"},
-		Keys:   Keys{DeleteArchives: true},
-		UI:     UI{Mouse: true, SaveDir: "~/Downloads"},
+		Safety:  Safety{SafeMode: true, ScratchFolder: "zorp-test"},
+		Keys:    Keys{DeleteArchives: true},
+		UI:      UI{Mouse: true, SaveDir: "~/Downloads"},
+		Compose: Compose{Format: "markdown"},
 	}
 }
 
@@ -201,6 +205,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Auth.Tenant == "" {
 		return fmt.Errorf("auth.tenant is empty in %s", c.Paths.ConfigFile)
+	}
+	if f := c.Compose.Format; f != "markdown" && f != "text" {
+		return fmt.Errorf("compose.format must be \"markdown\" or \"text\" in %s", c.Paths.ConfigFile)
 	}
 	if c.Sync.Interval < 10*time.Second {
 		return fmt.Errorf("sync.interval must be at least 10s in %s", c.Paths.ConfigFile)

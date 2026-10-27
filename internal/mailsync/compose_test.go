@@ -16,14 +16,16 @@ import (
 
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/graph"
+	"github.com/perlsaiyan/zorp/internal/markdown"
 )
 
 // composeGraph records compose requests and answers them.
 type composeGraph struct {
-	mu       sync.Mutex
-	calls    []string
-	bodies   map[string]map[string]any
-	failSend bool
+	mu        sync.Mutex
+	calls     []string
+	bodies    map[string]map[string]any
+	failSend  bool
+	changeKey string
 }
 
 func newComposeEngine(t *testing.T, cg *composeGraph) *Engine {
@@ -47,6 +49,11 @@ func newComposeEngine(t *testing.T, cg *composeGraph) *Engine {
 				{"id":"a3","name":"notes.txt","isInline":false}]}`)
 		case strings.HasSuffix(r.URL.Path, "/send") && cg.failSend:
 			w.WriteHeader(http.StatusBadGateway)
+		case r.Method == "GET" && r.URL.Path == "/me/messages/draft1":
+			json.NewEncoder(w).Encode(map[string]any{
+				"id": "draft1", "changeKey": cg.changeKey, "isDraft": true, "subject": "Re: x",
+				"body": map[string]string{"contentType": "html", "content": `<html><body><div id="divRplyFwdMsg">From: Alice</div><p>original <b>formatted</b></p></body></html>`},
+			})
 		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments/att1":
 			io.WriteString(w, `{"id":"att1","name":"../../etc/passwd","contentBytes":"aGVsbG8="}`)
 		default:
@@ -55,7 +62,7 @@ func newComposeEngine(t *testing.T, cg *composeGraph) *Engine {
 	}))
 	t.Cleanup(srv.Close)
 	g := graph.New(staticToken{}, graph.WithBaseURL(srv.URL))
-	return New(g, nil, Options{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New(g, nil, Options{DraftDir: t.TempDir()}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
 
 var to = []graph.EmailAddress{{Name: "Me", Address: "me@example.com"}}
@@ -166,5 +173,84 @@ func TestSafeFileName(t *testing.T) {
 		if got := SafeFileName(in); got != want {
 			t.Errorf("SafeFileName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func patchedBody(t *testing.T, cg *composeGraph) (contentType, content string) {
+	t.Helper()
+	b, ok := cg.bodies["PATCH /me/messages/draft1"]["body"].(map[string]any)
+	if !ok {
+		t.Fatalf("no PATCH body; calls %v", cg.calls)
+	}
+	return b["contentType"].(string), b["content"].(string)
+}
+
+func TestMarkdownReplyGoesAboveFormattedHistory(t *testing.T) {
+	cg := &composeGraph{changeKey: "ck1"}
+	e := newComposeEngine(t, cg)
+	body := "Sounds **good**.\n\n" + markdown.RefMarker + "\nOn Mon, Alice wrote:\n> original formatted\n"
+	_, err := e.Compose(context.Background(), Outgoing{Kind: compose.Reply, Format: compose.FormatMarkdown, Ref: "orig", Send: true,
+		Draft: graph.Draft{To: to, Body: body}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ct, content := patchedBody(t, cg)
+	mine := strings.Index(content, "Sounds <strong>good</strong>.")
+	hist := strings.Index(content, `<div id="divRplyFwdMsg">`)
+	if ct != "html" || mine < 0 || hist < mine || strings.Contains(content, "&gt; original") || strings.Contains(content, "zorp: the original") {
+		t.Errorf("body (%s):\n%s", ct, content)
+	}
+}
+
+func TestMarkdownWithoutMarkerSendsAsWritten(t *testing.T) {
+	cg := &composeGraph{}
+	e := newComposeEngine(t, cg)
+	_, err := e.Compose(context.Background(), Outgoing{Kind: compose.Reply, Format: compose.FormatMarkdown, Ref: "orig", Send: true,
+		Draft: graph.Draft{To: to, Body: "> question\n\nanswer\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.Join(cg.calls, ","), "GET /me/messages/draft1,") {
+		t.Errorf("history fetched without the marker: %v", cg.calls)
+	}
+	if _, content := patchedBody(t, cg); !strings.Contains(content, "<blockquote") || strings.Contains(content, "divRplyFwdMsg") {
+		t.Errorf("body:\n%s", content)
+	}
+}
+
+func TestSavedMarkdownDraftEditsAsWritten(t *testing.T) {
+	cg := &composeGraph{changeKey: "ck1"}
+	e := newComposeEngine(t, cg)
+	source := "Draft *text*\n\n" + markdown.RefMarker + "\n> quoted\n"
+	id, err := e.Compose(context.Background(), Outgoing{Kind: compose.Reply, Format: compose.FormatMarkdown, Ref: "orig",
+		Draft: graph.Draft{To: to, Body: source}})
+	if err != nil || id != "draft1" {
+		t.Fatalf("save: %q %v", id, err)
+	}
+	d, err := e.GetDraft(context.Background(), id)
+	if err != nil || d.Draft.Body != source || d.Format != compose.FormatMarkdown || d.WasHTML {
+		t.Fatalf("GetDraft = %+v, %v", d, err)
+	}
+
+	// Editing it again keeps the remembered history under the new text.
+	cg.calls, cg.bodies = nil, map[string]map[string]any{}
+	_, err = e.Compose(context.Background(), Outgoing{Kind: compose.EditDraft, Format: compose.FormatMarkdown, Ref: id, Send: true,
+		Draft: graph.Draft{To: to, Body: "Final *text*\n\n" + markdown.RefMarker + "\n> quoted\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, content := patchedBody(t, cg); !strings.Contains(content, "Final <em>text</em>") || !strings.Contains(content, "divRplyFwdMsg") {
+		t.Errorf("edited body:\n%s", content)
+	}
+	if e.loadSidecar(id) != nil {
+		t.Error("sidecar kept after sending")
+	}
+
+	// A draft changed elsewhere (new changeKey) falls back to its HTML as text.
+	e.saveSidecar(context.Background(), id, compose.FormatMarkdown, source, "")
+	cg.changeKey = "ck2"
+	d, _ = e.GetDraft(context.Background(), id)
+	if d.Format != "" || !d.WasHTML || !strings.Contains(d.Draft.Body, "original formatted") {
+		t.Errorf("stale sidecar used: %+v", d)
 	}
 }

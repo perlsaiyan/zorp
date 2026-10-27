@@ -140,6 +140,7 @@ type ComposeParams struct {
 	Cc      []Address `json:"cc,omitempty"`
 	Bcc     []Address `json:"bcc,omitempty"`
 	Subject string    `json:"subject"`
+	Format  string    `json:"format,omitempty"` // "markdown" (sent as HTML) or "text"
 	Body    string    `json:"body"`
 	Attach  []string  `json:"attach,omitempty"` // absolute paths
 	Keep    []string  `json:"keep,omitempty"`   // existing attachments to keep, by name
@@ -172,7 +173,8 @@ type DraftInfo struct {
 	Cc          []Address        `json:"cc"`
 	Bcc         []Address        `json:"bcc"`
 	Body        string           `json:"body"`
-	WasHTML     bool             `json:"was_html"` // saving will make it plain text
+	Format      string           `json:"format,omitempty"` // set when Body is the source zorp saved
+	WasHTML     bool             `json:"was_html"`         // converted from HTML; formatting was lost
 	Attachments []AttachmentInfo `json:"attachments"`
 }
 

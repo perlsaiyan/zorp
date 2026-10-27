@@ -102,6 +102,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 		engine: mailsync.New(graph.New(a), st, mailsync.Options{
 			Folders:     cfg.Sync.Folders,
 			InitialDays: cfg.Sync.InitialDays,
+			DraftDir:    filepath.Join(cfg.Paths.DataDir, "drafts"),
 		}, log),
 		log:       log,
 		cancel:    cancel,

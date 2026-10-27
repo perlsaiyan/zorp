@@ -10,10 +10,11 @@ import (
 	"net/url"
 )
 
-// Draft is the editable part of an outgoing message. Bodies are plain text.
+// Draft is the editable part of an outgoing message.
 type Draft struct {
 	Subject string
 	Body    string
+	HTML    bool // Body is HTML, not plain text
 	To      []EmailAddress
 	Cc      []EmailAddress
 	Bcc     []EmailAddress
@@ -28,9 +29,13 @@ func recipients(as []EmailAddress) []Recipient {
 }
 
 func (d Draft) fields() map[string]any {
+	ct := "text"
+	if d.HTML {
+		ct = "html"
+	}
 	return map[string]any{
 		"subject":       d.Subject,
-		"body":          map[string]string{"contentType": "text", "content": d.Body},
+		"body":          map[string]string{"contentType": ct, "content": d.Body},
 		"toRecipients":  recipients(d.To),
 		"ccRecipients":  recipients(d.Cc),
 		"bccRecipients": recipients(d.Bcc),
@@ -84,6 +89,7 @@ func (c *Client) UpdateDraft(ctx context.Context, id string, d Draft) error {
 // DraftMessage is a draft as stored on the server.
 type DraftMessage struct {
 	ID            string      `json:"id"`
+	ChangeKey     string      `json:"changeKey"`
 	Subject       string      `json:"subject"`
 	IsDraft       bool        `json:"isDraft"`
 	Body          ItemBody    `json:"body"`
@@ -95,7 +101,7 @@ type DraftMessage struct {
 // GetDraft fetches a draft's editable fields.
 func (c *Client) GetDraft(ctx context.Context, id string) (*DraftMessage, error) {
 	var d DraftMessage
-	path := "/me/messages/" + url.PathEscape(id) + "?$select=id,subject,isDraft,body,toRecipients,ccRecipients,bccRecipients"
+	path := "/me/messages/" + url.PathEscape(id) + "?$select=id,changeKey,subject,isDraft,body,toRecipients,ccRecipients,bccRecipients"
 	if err := c.get(ctx, path, &d); err != nil {
 		return nil, err
 	}
