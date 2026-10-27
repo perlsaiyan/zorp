@@ -2,7 +2,9 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +14,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/compose"
+	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -528,5 +532,163 @@ func TestSearchViewFits(t *testing.T) {
 				t.Errorf("%dx%d results: line %d is %d wide", sz[0], sz[1], i, w)
 			}
 		}
+	}
+}
+
+// prepareCompose starts composing and runs the preparation, as the runtime
+// would, up to the point where the editor would open.
+func prepareCompose(t *testing.T, m *Model, key string) *composing {
+	t.Helper()
+	cmd := m.handleKey(key)
+	if cmd == nil {
+		t.Fatalf("%s: no command (err %q)", key, m.errText)
+	}
+	ready, ok := cmd().(composeReadyMsg)
+	if !ok || ready.err != nil {
+		t.Fatalf("%s: prepare = %+v", key, ready)
+	}
+	if m.composeReady(ready) == nil || m.composing == nil {
+		t.Fatalf("%s: editor not started (err %q)", key, m.errText)
+	}
+	return m.composing
+}
+
+func editFile(t *testing.T, c *composing, edit func(string) string) {
+	t.Helper()
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(c.path, []byte(edit(string(data))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestComposeNewReviewAndDiscard(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.Paths.ComposeDir = t.TempDir()
+	m.cfg.Compose.Signature = "Tom"
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	// Quitting the editor without writing anything discards quietly.
+	c := prepareCompose(t, m, "c")
+	if st, _ := os.Stat(c.path); st.Mode().Perm() != 0o600 {
+		t.Errorf("compose file mode %v", st.Mode())
+	}
+	m.editorDone(nil)
+	if m.composing != nil || !strings.Contains(m.notice, "discarded") {
+		t.Errorf("unchanged file should discard: %+v %q", m.composing, m.notice)
+	}
+	if _, err := os.Stat(c.path); !os.IsNotExist(err) {
+		t.Error("compose file left behind")
+	}
+
+	c = prepareCompose(t, m, "c")
+	tmpl, _ := os.ReadFile(c.path)
+	if !strings.Contains(string(tmpl), "\n-- \nTom\n") {
+		t.Errorf("signature missing:\n%s", tmpl)
+	}
+	editFile(t, c, func(s string) string {
+		s = strings.Replace(s, "To: \n", "To: Alice <alice@example.com>\n", 1)
+		s = strings.Replace(s, "Subject: \n", "Subject: Lunch?\n", 1)
+		s = strings.Replace(s, "Attach: \n", "Attach: ~/definitely/not/here.pdf\n", 1)
+		return s + "\nThursday?\n"
+	})
+	m.editorDone(nil)
+	view := ansi.Strip(m.View().Content)
+	for _, want := range []string{"New message", "needs fixing", "To:       Alice <alice@example.com>", "Subject:  Lunch?", "✗ Attach:", "Thursday?", "y send"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("review missing %q:\n%s", want, view)
+		}
+	}
+	if m.handleKey("y") != nil || !strings.Contains(m.errText, "fix the problems") {
+		t.Errorf("sent with problems: %q", m.errText)
+	}
+
+	// Fix the attachment: a real file.
+	file := filepath.Join(t.TempDir(), "agenda.txt")
+	os.WriteFile(file, []byte("x"), 0o600)
+	editFile(t, c, func(s string) string { return strings.Replace(s, "~/definitely/not/here.pdf", file, 1) })
+	m.editorDone(nil)
+	if len(c.problems) != 0 || len(c.attach) != 1 || !strings.Contains(ansi.Strip(m.View().Content), "agenda.txt (1 bytes)") {
+		t.Errorf("after fixing: problems=%v attach=%v", c.problems, c.attach)
+	}
+	if m.handleKey("y") == nil || c.busy != "Sending…" {
+		t.Error("y should send")
+	}
+	// The daemon refused (e.g. safe mode): back on the review screen.
+	m.Update(composeDoneMsg{send: true, err: errors.New("safe mode: messages can only be sent to yourself")})
+	if m.composing == nil || c.busy != "" || !strings.Contains(m.errText, "safe mode") {
+		t.Errorf("refused send: composing=%v err=%q", m.composing, m.errText)
+	}
+
+	// q asks first; y discards and removes the file.
+	m.handleKey("q")
+	if m.confirm == nil {
+		t.Fatal("no discard confirmation")
+	}
+	deliver(m, m.handleKey("y"))
+	if m.composing != nil {
+		t.Error("not discarded")
+	}
+	if _, err := os.Stat(c.path); !os.IsNotExist(err) {
+		t.Error("compose file left behind after discard")
+	}
+}
+
+func TestComposeSendOutcomes(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.Paths.ComposeDir = t.TempDir()
+	for _, tc := range []struct {
+		msg    composeDoneMsg
+		notice string
+		err    string
+	}{
+		{composeDoneMsg{send: true}, "Sent.", ""},
+		{composeDoneMsg{send: false}, "Saved to Drafts.", ""},
+		{composeDoneMsg{send: true, res: ipc.ComposeResult{DraftID: "d1", SendError: "boom (the message is saved in Drafts)"}}, "", "Drafts and press e"},
+	} {
+		c := prepareCompose(t, m, "c")
+		editFile(t, c, func(s string) string { return strings.Replace(s, "To: \n", "To: a@example.com\n", 1) + "hi\n" })
+		m.editorDone(nil)
+		m.Update(tc.msg)
+		if m.composing != nil || m.notice != tc.notice || !strings.Contains(m.errText, tc.err) {
+			t.Errorf("%+v: composing=%v notice=%q err=%q", tc.msg, m.composing, m.notice, m.errText)
+		}
+		if _, err := os.Stat(c.path); !os.IsNotExist(err) {
+			t.Error("compose file left behind")
+		}
+		m.notice, m.errText = "", ""
+	}
+}
+
+func TestReplyTemplateQuotesOriginal(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.Paths.ComposeDir = t.TempDir()
+	// The newest message ("evil") has a cached body with hostile content.
+	c := prepareCompose(t, m, "R")
+	data, _ := os.ReadFile(c.path)
+	text := string(data)
+	if !strings.Contains(text, "Subject: Re: ") || !strings.Contains(text, "> line one") || strings.Contains(text, "\x1b") {
+		t.Errorf("reply template:\n%q", text)
+	}
+	if c.kind != compose.ReplyAll || c.ref != "evil" {
+		t.Errorf("composing = %+v", c)
+	}
+	// e only edits drafts.
+	m.composing = nil
+	if m.handleKey("e") != nil || !strings.Contains(m.errText, "isn't in Drafts") {
+		t.Errorf("e on a non-draft: %q", m.errText)
+	}
+}
+
+func TestStaleRefreshDoesNotSwitchFolderBack(t *testing.T) {
+	m := newTestModel(t)
+	refresh := loadCmd(m.st, m.account.ID, m.folderID, "") // started before the switch
+	m.openWellKnown("sentitems")
+	sent := m.folderID
+	m.Update(refresh())
+	if m.folderID != sent || len(m.msgs) != 0 {
+		t.Errorf("stale inbox refresh switched folder %d -> %d (%d msgs)", sent, m.folderID, len(m.msgs))
 	}
 }

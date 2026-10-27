@@ -17,6 +17,7 @@ type pickerKind int
 const (
 	pickMove pickerKind = iota
 	pickLink
+	pickAttach
 )
 
 // choice is one row in a picker.
@@ -26,6 +27,7 @@ type choice struct {
 	indent   int
 	folderID int64
 	url      string
+	attIDs   []string
 }
 
 // picker is a type-to-filter chooser, used for "move to folder" and
@@ -110,8 +112,12 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 		if p.cursor < len(p.matches) {
 			c := p.matches[p.cursor]
 			m.picker = nil
-			if p.kind == pickLink {
+			switch p.kind {
+			case pickLink:
 				return openURLCmd(c.url)
+			case pickAttach:
+				m.notice = "Saving…"
+				return saveAttachmentsCmd(m.cfg, p.graphID, c.attIDs)
 			}
 			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: c.folderID})
 		}
@@ -139,10 +145,7 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 
 func (m *Model) pickerLines(w, h int) []string {
 	p := m.picker
-	action := "move"
-	if p.kind == pickLink {
-		action = "open"
-	}
+	action := map[pickerKind]string{pickMove: "move", pickLink: "open", pickAttach: "save"}[p.kind]
 	lines := []string{
 		"",
 		styleBold.Render("  "+p.title+": ") + clean(p.query) + "█",

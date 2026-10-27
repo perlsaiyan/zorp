@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -144,29 +145,52 @@ func TestSearchMessagesQuotesAndPages(t *testing.T) {
 	}
 }
 
-func TestSendMailIsNotRetriedAfterServerError(t *testing.T) {
+func TestLargeAttachmentUsesUploadSessionWithoutToken(t *testing.T) {
+	upload := httptest.NewServer(nil)
+	t.Cleanup(upload.Close)
+	var ranges []string
+	upload.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("bearer token sent to the upload URL")
+		}
+		ranges = append(ranges, r.Header.Get("Content-Range"))
+		w.WriteHeader(http.StatusOK)
+	})
+	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/me/messages/d1/attachments/createUploadSession" {
+			t.Errorf("unexpected %s %s", r.Method, r.URL.Path)
+		}
+		w.Write([]byte(`{"uploadUrl":"` + upload.URL + `/up"}`))
+	})
+	data := make([]byte, smallAttachment+uploadChunk+5)
+	if err := c.AddAttachment(context.Background(), "d1", "big.bin", "application/octet-stream", data); err != nil {
+		t.Fatal(err)
+	}
+	n := len(data)
+	var want []string
+	for off := 0; off < n; off += uploadChunk {
+		want = append(want, fmt.Sprintf("bytes %d-%d/%d", off, min(off+uploadChunk, n)-1, n))
+	}
+	if len(want) < 2 {
+		t.Fatal("test data should need several chunks")
+	}
+	if strings.Join(ranges, ";") != strings.Join(want, ";") {
+		t.Errorf("ranges = %v, want %v", ranges, want)
+	}
+}
+
+func TestSendIsNotRetriedAfterServerError(t *testing.T) {
 	calls := 0
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls == 1 {
 			w.Header().Set("Retry-After", "0")
-			w.WriteHeader(http.StatusTooManyRequests) // safe to retry
+			w.WriteHeader(http.StatusTooManyRequests) // rejected before processing: safe to retry
 			return
-		}
-		var body struct {
-			Message struct {
-				ToRecipients []Recipient `json:"toRecipients"`
-			} `json:"message"`
-			SaveToSentItems bool `json:"saveToSentItems"`
-		}
-		json.NewDecoder(r.Body).Decode(&body)
-		if len(body.Message.ToRecipients) != 1 || !body.SaveToSentItems {
-			t.Errorf("body = %+v", body)
 		}
 		w.WriteHeader(http.StatusBadGateway) // may have been sent: don't retry
 	})
-	err := c.SendMail(context.Background(), OutgoingMessage{Subject: "s", Body: "b", To: []string{"me@example.com"}})
-	if err == nil || calls != 2 {
+	if err := c.SendDraft(context.Background(), "d1"); err == nil || calls != 2 {
 		t.Errorf("err=%v calls=%d, want an error after 2 calls", err, calls)
 	}
 }

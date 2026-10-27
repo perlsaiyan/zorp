@@ -20,6 +20,10 @@ const (
 	MethodExportHTML = "export-html"
 	MethodSetSync    = "set-sync"
 	MethodSearch     = "search"
+	MethodCompose    = "compose"
+	MethodGetDraft   = "get-draft"
+	MethodAttachList = "attachments"
+	MethodSaveAttach = "save-attachment"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -119,6 +123,64 @@ type SearchParams struct {
 // can read them from the store.
 type SearchResult struct {
 	GraphIDs []string `json:"graph_ids"`
+}
+
+type Address struct {
+	Name string `json:"name,omitempty"`
+	Addr string `json:"addr"`
+}
+
+// ComposeParams sends a message or saves it as a draft.
+type ComposeParams struct {
+	Kind    string    `json:"kind"`          // new, reply, reply-all, forward, draft
+	Ref     string    `json:"ref,omitempty"` // original message, or the draft being edited
+	To      []Address `json:"to,omitempty"`
+	Cc      []Address `json:"cc,omitempty"`
+	Bcc     []Address `json:"bcc,omitempty"`
+	Subject string    `json:"subject"`
+	Body    string    `json:"body"`
+	Attach  []string  `json:"attach,omitempty"` // absolute paths
+	Keep    []string  `json:"keep,omitempty"`   // existing attachments to keep, by name
+	Send    bool      `json:"send"`             // false: save to Drafts
+}
+
+// ComposeResult reports the draft used. When it was created but sending
+// failed, DraftID is set together with SendError: the message is in Drafts.
+type ComposeResult struct {
+	DraftID   string `json:"draft_id,omitempty"`
+	SendError string `json:"send_error,omitempty"`
+}
+
+type MessageRef struct {
+	GraphID string `json:"graph_id"`
+}
+
+type AttachmentInfo struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	ContentType string `json:"content_type"`
+	Size        int    `json:"size"`
+	IsInline    bool   `json:"is_inline"`
+}
+
+// DraftInfo is a draft's content, for editing as text.
+type DraftInfo struct {
+	Subject     string           `json:"subject"`
+	To          []Address        `json:"to"`
+	Cc          []Address        `json:"cc"`
+	Bcc         []Address        `json:"bcc"`
+	Body        string           `json:"body"`
+	WasHTML     bool             `json:"was_html"` // saving will make it plain text
+	Attachments []AttachmentInfo `json:"attachments"`
+}
+
+type SaveAttachmentParams struct {
+	GraphID      string `json:"graph_id"`
+	AttachmentID string `json:"attachment_id"`
+}
+
+type SaveAttachmentResult struct {
+	Path string `json:"path"`
 }
 
 // ErrorEvent reports a failure the user should see, e.g. a change Graph

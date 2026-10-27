@@ -431,6 +431,15 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		ids, err := d.engine.SearchServer(ctx, p.KQL, min(limit, 250))
 		return ipc.SearchResult{GraphIDs: ids}, err
 
+	case ipc.MethodCompose:
+		return d.compose(ctx, params)
+	case ipc.MethodGetDraft:
+		return d.getDraft(ctx, params)
+	case ipc.MethodAttachList:
+		return d.listAttachments(ctx, params)
+	case ipc.MethodSaveAttach:
+		return d.saveAttachment(ctx, params)
+
 	case ipc.MethodReloadAuth:
 		// MSAL re-reads the token cache file before every token request, so
 		// there's nothing to reload; just leave needs_login and sync soon.

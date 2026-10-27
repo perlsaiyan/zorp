@@ -131,15 +131,16 @@ Rules:
 | `f` | flag |
 | `a` | archive (move to Archive) |
 | `m` | move to folder (fuzzy picker) |
-| `r` / `R` | reply / reply-all |
+| `r` / `R` | reply / reply-all *(M7)* |
 | `F` | forward |
-| `c` | compose |
+| `c` | compose *(M7)* |
+| `e` | edit a draft (message in Drafts) *(added in M7)* |
 | `/` | search (FTS5 local; `?` prefix for server-side `$search`; automatic server fallback when nothing local matches); `Esc` leaves the results *(detailed in M6)* |
 | `g` then letter | go to folder (`gi` inbox, `gs` sent, `gd` drafts) |
 | `Space` | select / multi-select; bulk actions apply to selection |
 | `o` | open message HTML in the default browser (write temp file with cid images inlined as data URIs) |
 | `O` | open link picker (extract URLs from the body, fuzzy select, `xdg-open`) |
-| `s` | save attachment(s) |
+| `s` | save attachment(s) to `ui.save_dir` (picker; "All attachments" when several) *(M7)* |
 | `T` | toggle thread view (group by `conversationId`) |
 | `S` | AI summarize (section 9) |
 | `D` | AI draft reply (section 9) |
@@ -152,6 +153,15 @@ Rules:
 | `L` | log in again when the daemon reports `needs_login` *(added in M3)* |
 
 Compose: spawn `$EDITOR` on a temp file with headers (To/Cc/Subject) and a quoted body; parse on exit; confirm before send. Support attachments via a header line (`Attach: /path`).
+
+*As built in M7:*
+- The compose file lives in `~/.local/share/zorp/compose/` (0600) until the message is sent, saved or discarded. Headers taken from received mail are sanitized before they are written into it.
+- Bodies are sent as **plain text**. Replies and forwards are created with `createReply` / `createReplyAll` / `createForward`, so threading headers and a forward's attachments come from the server. The draft's recipients, subject and body are then replaced with the user's (`PATCH`), and the draft is sent with `/send`. New messages without attachments use `/sendMail`.
+- Reply recipients are computed locally: Reply-To if set, else From; replying to your own message goes to its original recipients. Reply-To is synced for this (migration 5).
+- Attachments: up to 3 MB are posted inline; larger ones (to 150 MB) use an upload session. The upload URL gets no bearer token. Forwards and edited drafts drop inline attachments, which the plain-text body can't reference.
+- **Sends are never retried** after a 5xx or network error, only after 429, because the message may already have gone out. If the send step fails after the draft was created, the draft stays in Drafts and the user is told so.
+- Safe mode (daemon-enforced) allows sending only when every To/Cc/Bcc address is the signed-in user; saving drafts is always allowed.
+- Editing an Outlook HTML draft converts it to plain text, and the review screen warns about this.
 
 ### Rendering mail bodies
 1. Prefer `text/plain` if substantive; otherwise convert HTML to Markdown and render with styled terminal output (headings, quotes dimmed, links underlined with a footnote index).

@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/perlsaiyan/zorp/config"
+	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
@@ -78,11 +79,13 @@ type Model struct {
 	prompt     *textinput.Model // search prompt, when open
 	search     *search          // active search, whose results are listed
 	searchSeq  int              // bumps per search, to drop stale results
+	composing  *composing       // message being written (review screen)
 
 	daemonUp bool
 	events   <-chan ipc.Event
 	status   ipc.Status
 	errText  string
+	notice   string // short non-error status, e.g. "Sent."
 }
 
 // New builds the model with an initial synchronous load, so the first frame
@@ -128,8 +131,10 @@ func (m *Model) currentMessage() (store.Message, bool) {
 
 func (m *Model) applyLoaded(l loadedMsg) {
 	m.folders = l.folders
-	if m.search != nil {
-		// The list shows search results; only the folder pane updates.
+	if m.search != nil || (l.refresh && l.folderID != m.folderID) {
+		// The list shows search results, or this background refresh was
+		// started before the user opened another folder: only the folder
+		// pane updates.
 		m.folderCur = clamp(m.folderCur, 0, len(m.folders)-1)
 		return
 	}
@@ -237,6 +242,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case searchResultMsg:
 		return m, m.handleSearchResult(msg)
+
+	case composeReadyMsg:
+		return m, m.composeReady(msg)
+
+	case editorDoneMsg:
+		return m, m.editorDone(msg.err)
+
+	case composeDoneMsg:
+		return m, m.composeDone(msg)
+
+	case composeDiscardMsg:
+		m.endCompose()
+		m.notice = "Discarded."
+		return m, nil
+
+	case attachmentsMsg:
+		m.openAttachmentPicker(msg)
+		return m, nil
+
+	case savedMsg:
+		m.saved(msg)
+		return m, nil
 
 	case tea.MouseMsg:
 		if !m.cfg.UI.Mouse {
@@ -373,6 +400,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		return tea.Quit
 	}
 	m.errText = ""
+	if m.composing == nil || m.composing.busy == "" {
+		m.notice = ""
+	}
 	if m.help {
 		m.help = false
 		return nil
@@ -387,6 +417,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	}
 	if m.picker != nil {
 		return m.pickerKey(key)
+	}
+	if m.composing != nil {
+		return m.composeKey(key)
 	}
 
 	if m.gPending {
@@ -425,6 +458,8 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	case "/":
 		m.openPrompt()
 		return nil
+	case "c":
+		return m.startCompose(compose.New)
 	case "?":
 		m.help = true
 		return nil
@@ -620,6 +655,16 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		m.showQuoted = !m.showQuoted
 		m.refreshPreview(false)
 		return nil, true
+	case "r":
+		return m.startCompose(compose.Reply), true
+	case "R":
+		return m.startCompose(compose.ReplyAll), true
+	case "F":
+		return m.startCompose(compose.Forward), true
+	case "e":
+		return m.startCompose(compose.EditDraft), true
+	case "s":
+		return m.listAttachmentsCmd(), true
 	}
 	return nil, false
 }

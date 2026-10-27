@@ -201,3 +201,10 @@ func FuzzFromHTML(f *testing.F) {
 		}
 	})
 }
+
+func TestTextIsUnstyledAndUnfolded(t *testing.T) {
+	got := FromHTML(outlookReply).Text(72)
+	if strings.Contains(got, "\x1b") || !strings.Contains(got, "Can we meet Wednesday?") || strings.Contains(got, "quoted text hidden") {
+		t.Errorf("Text:\n%s", got)
+	}
+}

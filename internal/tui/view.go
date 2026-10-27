@@ -167,6 +167,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, padLines(m.helpLines(), m.width, g.bodyH)...)
 	case m.picker != nil:
 		lines = append(lines, m.pickerLines(m.width, g.bodyH)...)
+	case m.composing != nil:
+		lines = append(lines, m.composeLines(m.width, g.bodyH)...)
 	case m.reading:
 		lines = append(lines, padLines(strings.Split(m.preview.View(), "\n"), m.width, g.bodyH)...)
 	default:
@@ -420,6 +422,9 @@ func (m *Model) bottomBar() string {
 	if m.errText != "" {
 		return styleError.Render(fit(" "+m.errText, m.width))
 	}
+	if m.notice != "" {
+		return styleAccent.Render(fit(" "+m.notice, m.width))
+	}
 	if m.status.LastError != "" && m.status.State != ipc.StateSyncing {
 		return styleError.Render(fit(" sync: "+m.status.LastError, m.width))
 	}
@@ -428,9 +433,11 @@ func (m *Model) bottomBar() string {
 	case m.help:
 		hints = "any key: close help"
 	case m.picker != nil:
-		hints = "type to filter  ↑/↓ choose  enter move  esc cancel"
+		hints = "type to filter  ↑/↓ choose  enter select  esc cancel"
+	case m.composing != nil:
+		hints = "y send  d save to Drafts  e edit again  q discard"
 	case m.reading:
-		hints = "j/k scroll  space/- page  n/p next/prev  z quotes  O links  o browser  u unread  f flag  d " + m.dLabel() + "  m move  q back"
+		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
 	case m.focus == paneFolders:
@@ -440,7 +447,10 @@ func (m *Model) bottomBar() string {
 	case m.search != nil:
 		hints = "j/k move  ⏎ open  / edit search  esc back to folder  u read/unread  f flag  d " + m.dLabel() + "  m move  ? help"
 	default:
-		hints = "j/k move  ⏎ open  / search  u read/unread  f flag  d " + m.dLabel() + "  a archive  m move  O links  o browser  ? help  q quit"
+		hints = "j/k move  ⏎ open  / search  c compose  r reply  R all  F fwd  u unread  f flag  d " + m.dLabel() + "  m move  s save att  ? help  q quit"
+		if f, ok := m.currentFolder(); ok && f.WellKnown == "drafts" && m.search == nil {
+			hints = "j/k move  ⏎ open  e edit draft  c compose  / search  d " + m.dLabel() + "  ? help  q quit"
+		}
 	}
 	return styleFaint.Render(fit(" "+hints, m.width))
 }
@@ -461,6 +471,7 @@ func (m *Model) helpLines() []string {
 		"    tab / shift+tab   next / previous pane",
 		"    g i, g s, g d, g a   go to Inbox, Sent, Drafts, Archive",
 		"    /                 search (esc in the results goes back to the folder)",
+		"    c                 write a new message",
 		"    w                 preview: right, bottom, hidden",
 		"    b                 show/hide folder pane",
 		"    + / -             start / stop syncing the folder",
@@ -478,6 +489,10 @@ func (m *Model) helpLines() []string {
 		"    X                 delete (moves to Deleted Items), after confirming",
 		"    a                 archive",
 		"    m                 move to folder (type to filter)",
+		"    r / R             reply / reply to all",
+		"    F                 forward",
+		"    e                 edit a draft (in Drafts)",
+		"    s                 save attachments (to ui.save_dir)",
 		"    z                 show/hide quoted replies and signature",
 		"    O                 pick a link to open in the browser",
 		"    o                 open the message in the browser (remote images blocked)",
@@ -497,6 +512,10 @@ func (m *Model) helpLines() []string {
 		"    has:attachment    after:2026-01-31  before:7d  (d, w, m, y)",
 		"    ?query            search the server (whole mailbox, Outlook syntax);",
 		"                      also tried automatically when nothing cached matches",
+		"",
+		"  Writing  (opens $EDITOR; headers on top, a blank line, then the message)",
+		"    Attach: ~/file.pdf   one line per file; delete an Attached: line to drop it",
+		"    after the editor: y send, d save to Drafts, e edit again, q discard",
 		"",
 		"  Reading a message",
 		"    j/k               scroll",

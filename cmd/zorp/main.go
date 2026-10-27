@@ -384,10 +384,10 @@ func runProbe(ctx context.Context, args []string) error {
 		if self == "" {
 			self = me.UserPrincipalName
 		}
-		err := g.SendMail(ctx, graph.OutgoingMessage{
+		err := g.SendMail(ctx, graph.Draft{
 			Subject: "zorp probe: test message",
 			Body:    "This is a test message sent by `zorp probe --send` at " + time.Now().Format(time.RFC1123) + ".\nIt was sent only to you.",
-			To:      []string{self},
+			To:      []graph.EmailAddress{{Address: self}},
 		})
 		if err != nil {
 			fmt.Println("FAIL")

@@ -37,6 +37,7 @@ type Message struct {
 	From              *Recipient  `json:"from"` // null for some drafts and system messages
 	ToRecipients      []Recipient `json:"toRecipients"`
 	CcRecipients      []Recipient `json:"ccRecipients"`
+	ReplyTo           []Recipient `json:"replyTo"`
 	ReceivedDateTime  time.Time   `json:"receivedDateTime"`
 	IsRead            bool        `json:"isRead"`
 	HasAttachments    bool        `json:"hasAttachments"`
@@ -53,7 +54,7 @@ type Message struct {
 }
 
 // messageSelect is the $select list for message summaries.
-const messageSelect = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients," +
+const messageSelect = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,replyTo," +
 	"receivedDateTime,isRead,hasAttachments,importance,flag,categories,bodyPreview,parentFolderId"
 
 type MailFolder struct {

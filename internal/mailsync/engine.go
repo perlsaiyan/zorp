@@ -274,6 +274,7 @@ func toStore(m graph.Message) store.Message {
 		Subject:           m.Subject,
 		To:                addrs(m.ToRecipients),
 		Cc:                addrs(m.CcRecipients),
+		ReplyTo:           addrs(m.ReplyTo),
 		ReceivedAt:        m.ReceivedDateTime,
 		IsRead:            m.IsRead,
 		HasAttachments:    m.HasAttachments,

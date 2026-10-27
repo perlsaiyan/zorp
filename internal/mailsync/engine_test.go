@@ -164,7 +164,7 @@ func TestSyncInitialThenIncrementalThenExpired(t *testing.T) {
 	msgs := inboxMessages(t, st, fr.FolderID)
 	m1 := msgs["m1"]
 	if m1.From.Addr != "alice@example.com" || !m1.Flagged || !m1.HasAttachments || m1.Importance != "high" ||
-		len(m1.To) != 1 || len(m1.Categories) != 1 {
+		len(m1.To) != 1 || len(m1.Categories) != 1 || len(m1.ReplyTo) != 1 || m1.ReplyTo[0].Addr != "finance@example.com" {
 		t.Errorf("m1 = %+v", m1)
 	}
 	if m3 := msgs["m3"]; m3.From.Addr != "" || m3.Subject != "System notice" {

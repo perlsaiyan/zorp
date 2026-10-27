@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,11 +16,12 @@ const appName = "zorp"
 
 // Config is the contents of ~/.config/zorp/config.toml.
 type Config struct {
-	Auth   Auth   `toml:"auth"`
-	Sync   Sync   `toml:"sync"`
-	Safety Safety `toml:"safety"`
-	Keys   Keys   `toml:"keys"`
-	UI     UI     `toml:"ui"`
+	Auth    Auth    `toml:"auth"`
+	Sync    Sync    `toml:"sync"`
+	Safety  Safety  `toml:"safety"`
+	Keys    Keys    `toml:"keys"`
+	UI      UI      `toml:"ui"`
+	Compose Compose `toml:"compose"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
@@ -67,6 +69,15 @@ type UI struct {
 	// Mouse enables clicking, scrolling and dragging pane dividers. While
 	// it's on, most terminals need Shift+drag to select text.
 	Mouse bool `toml:"mouse"`
+	// SaveDir is where attachments are saved ("~" is expanded).
+	SaveDir string `toml:"save_dir"`
+}
+
+type Compose struct {
+	// Editor overrides $VISUAL / $EDITOR for writing messages.
+	Editor string `toml:"editor"`
+	// Signature is added to new messages, replies and forwards.
+	Signature string `toml:"signature"`
 }
 
 type Paths struct {
@@ -78,6 +89,7 @@ type Paths struct {
 	DaemonLog  string
 	ViewDir    string // messages exported for viewing in a browser
 	UIState    string // remembered pane sizes and layout
+	ComposeDir string // messages being written, kept until sent or discarded
 }
 
 func defaults() Config {
@@ -91,7 +103,7 @@ func defaults() Config {
 		},
 		Safety: Safety{SafeMode: true, ScratchFolder: "zorp-test"},
 		Keys:   Keys{DeleteArchives: true},
-		UI:     UI{Mouse: true},
+		UI:     UI{Mouse: true, SaveDir: "~/Downloads"},
 	}
 }
 
@@ -154,7 +166,18 @@ func resolvePaths() (Paths, error) {
 		DaemonLog:  filepath.Join(dataDir, "daemon.log"),
 		ViewDir:    filepath.Join(socketDir, appName+"-view"),
 		UIState:    filepath.Join(dataDir, "ui-state.json"),
+		ComposeDir: filepath.Join(dataDir, "compose"),
 	}, nil
+}
+
+// ExpandHome replaces a leading "~" with the home directory.
+func ExpandHome(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, path[1:])
+		}
+	}
+	return path
 }
 
 func envOr(key, fallback string) string {

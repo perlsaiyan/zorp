@@ -248,3 +248,13 @@ func itoa(n int) string {
 	}
 	return string(b[i:])
 }
+
+// Text is the whole document (nothing folded) as unstyled lines wrapped at
+// width, with link footnotes: the form used to quote or forward a message.
+func (d *Doc) Text(width int) string {
+	lines := d.Render(width, Options{ShowQuoted: true})
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(ansi.Strip(l), " ")
+	}
+	return strings.Join(lines, "\n")
+}

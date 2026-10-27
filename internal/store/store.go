@@ -217,4 +217,10 @@ ALTER TABLE folders ADD COLUMN sync_override INTEGER;
 ALTER TABLE messages ADD COLUMN from_search INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN searched_at INTEGER NOT NULL DEFAULT 0;
 `,
+	// 5: Reply-To addresses, for replying. Delta links are dropped so the
+	// next sync re-reads each folder's window with the new field selected.
+	`
+ALTER TABLE messages ADD COLUMN reply_to_json TEXT NOT NULL DEFAULT '[]';
+UPDATE folders SET delta_link = '';
+`,
 }

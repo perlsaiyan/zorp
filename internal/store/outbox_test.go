@@ -8,11 +8,7 @@ import (
 
 func getMsg(t *testing.T, s *Store, acct int64, gid string) (Message, bool) {
 	t.Helper()
-	var m Message
-	err := s.db.QueryRow(`SELECT `+messageCols+` FROM messages WHERE account_id = ? AND graph_id = ?`, acct, gid).
-		Scan(&m.ID, &m.GraphID, &m.FolderID, &m.ConversationID, &m.InternetMessageID, &m.Subject,
-			new(string), new(string), new(string), new(string), new(int64), &m.IsRead, &m.HasAttachments,
-			&m.Importance, &m.Flagged, new(string), &m.BodyPreview)
+	m, err := scanMessage(s.db.QueryRow(`SELECT `+messageCols+` FROM messages WHERE account_id = ? AND graph_id = ?`, acct, gid))
 	if err != nil {
 		return m, false
 	}

@@ -82,6 +82,7 @@ type loadedMsg struct {
 	folderID int64
 	msgs     []store.Message
 	keep     string // graph ID to keep the cursor on, if still present
+	refresh  bool   // a background reload, not the user opening a folder
 	err      error
 }
 
@@ -114,7 +115,9 @@ func loadData(ctx context.Context, st *store.Store, accountID, folderID int64, k
 
 func loadCmd(st *store.Store, accountID, folderID int64, keep string) tea.Cmd {
 	return func() tea.Msg {
-		return loadData(context.Background(), st, accountID, folderID, keep)
+		l := loadData(context.Background(), st, accountID, folderID, keep)
+		l.refresh = true
+		return l
 	}
 }
 
