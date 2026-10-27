@@ -253,18 +253,21 @@ func runDaemon(ctx context.Context, args []string) error {
 		}
 		defer c.Close()
 		if sub == "stop" {
+			var st ipc.Status
+			if err := c.Call(ctx, ipc.MethodStatus, nil, &st); err != nil {
+				return err
+			}
 			if err := c.Call(ctx, ipc.MethodShutdown, nil, nil); err != nil {
 				return err
 			}
-			// Wait until the socket stops answering, so a command run right
-			// after this doesn't connect to the exiting daemon.
-			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-				probe, err := ipc.Dial(ctx, cfg.Paths.Socket)
-				if err != nil {
+			// Wait for the process to exit, not just the socket to close:
+			// the daemon releases its instance lock last, after closing the
+			// database, and a new daemon can't start until then.
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+				if err := syscall.Kill(st.PID, 0); errors.Is(err, syscall.ESRCH) {
 					fmt.Println("Daemon stopped.")
 					return nil
 				}
-				probe.Close()
 			}
 			return errors.New("daemon acknowledged shutdown but is still running")
 		}
