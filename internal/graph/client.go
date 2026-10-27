@@ -4,10 +4,13 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	neturl "net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,12 +27,23 @@ type Client struct {
 	baseURL string
 }
 
-func New(tokens TokenSource) *Client {
-	return &Client{
+type Option func(*Client)
+
+// WithBaseURL points the client at a different Graph root (for tests).
+func WithBaseURL(u string) Option {
+	return func(c *Client) { c.baseURL = strings.TrimRight(u, "/") }
+}
+
+func New(tokens TokenSource, opts ...Option) *Client {
+	c := &Client{
 		http:    &http.Client{Timeout: 30 * time.Second},
 		tokens:  tokens,
 		baseURL: BaseURL,
 	}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 // Error is a non-2xx Graph response.
@@ -45,12 +59,28 @@ func (e *Error) Error() string {
 
 const maxAttempts = 5
 
-// get fetches path (relative to the base URL) and decodes the JSON response into v.
-// It retries 429 (honoring Retry-After), 5xx, and network errors with backoff.
-func (c *Client) get(ctx context.Context, path string, v any) error {
+// IsNotFound reports whether err is a Graph 404.
+func IsNotFound(err error) bool {
+	var gerr *Error
+	return errors.As(err, &gerr) && gerr.Status == http.StatusNotFound
+}
+
+// get fetches path (relative to the base URL, or an absolute URL such as a
+// nextLink) and decodes the JSON response into v. prefer adds values to the
+// Prefer header. It retries 429 (honoring Retry-After), 5xx, and network
+// errors with backoff.
+func (c *Client) get(ctx context.Context, path string, v any, prefer ...string) error {
+	url := path
+	if !strings.HasPrefix(path, "https://") && !strings.HasPrefix(path, "http://") {
+		url = c.baseURL + path
+	} else if !sameOrigin(path, c.baseURL) {
+		// Absolute URLs come from Graph (nextLink/deltaLink); never send the
+		// bearer token anywhere else.
+		return fmt.Errorf("graph: refusing to follow link to another host: %s", path)
+	}
 	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		retryAfter, err := c.doGet(ctx, path, v)
+		retryAfter, err := c.doGet(ctx, url, v, prefer)
 		if err == nil {
 			return nil
 		}
@@ -71,12 +101,12 @@ func (c *Client) get(ctx context.Context, path string, v any) error {
 }
 
 // doGet performs one attempt. retryAfter < 0 means don't retry; 0 means use backoff.
-func (c *Client) doGet(ctx context.Context, path string, v any) (retryAfter time.Duration, err error) {
+func (c *Client) doGet(ctx context.Context, url string, v any, prefer []string) (retryAfter time.Duration, err error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return -1, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+path, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return -1, err
 	}
@@ -84,7 +114,7 @@ func (c *Client) doGet(ctx context.Context, path string, v any) (retryAfter time
 	req.Header.Set("Accept", "application/json")
 	// Immutable IDs keep message IDs stable across folder moves. Every request
 	// must send this; see PLAN.md section 5.
-	req.Header.Set("Prefer", `IdType="ImmutableId"`)
+	req.Header.Set("Prefer", strings.Join(append([]string{`IdType="ImmutableId"`}, prefer...), ", "))
 
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -108,6 +138,12 @@ func (c *Client) doGet(ctx context.Context, path string, v any) (retryAfter time
 	default:
 		return -1, gerr
 	}
+}
+
+func sameOrigin(a, b string) bool {
+	ua, err1 := neturl.Parse(a)
+	ub, err2 := neturl.Parse(b)
+	return err1 == nil && err2 == nil && ua.Scheme == ub.Scheme && ua.Host == ub.Host
 }
 
 func decodeError(resp *http.Response) *Error {

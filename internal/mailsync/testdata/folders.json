@@ -1,0 +1,4 @@
+{"@odata.context":"https://graph.microsoft.com/v1.0/$metadata#users('x')/mailFolders","value":[
+ {"id":"AAInbox","displayName":"Inbox","parentFolderId":"AARoot","childFolderCount":1,"unreadItemCount":2,"totalItemCount":3},
+ {"id":"AAArchive","displayName":"Archive","parentFolderId":"AARoot","childFolderCount":0,"unreadItemCount":0,"totalItemCount":10}
+]}

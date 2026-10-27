@@ -201,7 +201,7 @@ internal/daemon/               # daemon lifecycle, autostart, status
 internal/ipc/                  # socket protocol (requests, event stream), client + server
 internal/graph/                # HTTP client, typed models, delta, mutations, retry
 internal/store/                # SQLite, migrations, queries, FTS, outbox
-internal/sync/                 # sync engine, outbox flusher, polling loop
+internal/mailsync/             # sync engine, outbox flusher (named to avoid shadowing Go's sync package)
 internal/tui/                  # bubbletea models: folders, list, preview, compose, pickers
 internal/render/               # html->text, quote folding, link extraction
 internal/termgfx/              # terminal detection, kitty graphics, placeholders, fallbacks

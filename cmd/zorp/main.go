@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -14,7 +15,10 @@ import (
 
 	"github.com/tom/zorp/config"
 	"github.com/tom/zorp/internal/auth"
+	"github.com/tom/zorp/internal/daemon"
 	"github.com/tom/zorp/internal/graph"
+	"github.com/tom/zorp/internal/ipc"
+	"github.com/tom/zorp/internal/mailsync"
 )
 
 const usage = `usage: zorp <command> [flags]
@@ -24,6 +28,9 @@ commands:
   logout                         forget the cached sign-in
   whoami                         show the signed-in user (calls Graph /me)
   probe                          list the 10 newest Inbox messages (auth go/no-go check)
+  sync [--full]                  sync now via the daemon (starting it if needed); --full rebuilds the cache
+  daemon                         run the sync daemon in the foreground
+  daemon status | stop           show the running daemon's state, or stop it
 `
 
 func main() {
@@ -45,6 +52,10 @@ func main() {
 		err = runWhoami(ctx)
 	case "probe":
 		err = runProbe(ctx)
+	case "sync":
+		err = runSync(ctx, args)
+	case "daemon":
+		err = runDaemon(ctx, args)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -86,7 +97,7 @@ func runLogin(ctx context.Context, args []string) error {
 		mode = auth.ModeBrowser
 	}
 
-	_, a, err := newAuth()
+	cfg, a, err := newAuth()
 	if err != nil {
 		return err
 	}
@@ -97,11 +108,25 @@ func runLogin(ctx context.Context, args []string) error {
 		return err
 	}
 	fmt.Printf("\nSigned in as %s\n", acct.PreferredUsername)
+	notifyDaemonAuth(ctx, cfg)
 	return nil
 }
 
+// notifyDaemonAuth tells a running daemon that the token cache changed.
+// A daemon that isn't running will pick it up when it starts.
+func notifyDaemonAuth(ctx context.Context, cfg *config.Config) {
+	c, err := daemon.Connect(ctx, cfg, false)
+	if err != nil {
+		return
+	}
+	defer c.Close()
+	if err := c.Call(ctx, ipc.MethodReloadAuth, nil, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: couldn't notify the daemon: %v\n", err)
+	}
+}
+
 func runLogout(ctx context.Context) error {
-	_, a, err := newAuth()
+	cfg, a, err := newAuth()
 	if err != nil {
 		return err
 	}
@@ -109,7 +134,98 @@ func runLogout(ctx context.Context) error {
 		return err
 	}
 	fmt.Println("Signed out.")
+	notifyDaemonAuth(ctx, cfg)
 	return nil
+}
+
+func runSync(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
+	full := fs.Bool("full", false, "discard the local cache and resync from scratch")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	c, err := daemon.Connect(ctx, cfg, true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+
+	fmt.Println("Syncing...")
+	var res mailsync.Result
+	if err := c.Call(ctx, ipc.MethodSync, ipc.SyncParams{Full: *full}, &res); err != nil {
+		return err
+	}
+	fmt.Printf("%d folders in mailbox, synced in %s\n\n", res.Folders, res.Duration.Round(time.Millisecond))
+	for _, fr := range res.FolderResults {
+		kind := "incremental"
+		if fr.Initial {
+			kind = "initial"
+		}
+		fmt.Printf("  %-20s %-11s  +%d/-%d  →  %d cached, %d unread\n",
+			fr.Folder, kind, fr.Upserted, fr.Removed, fr.Total, fr.Unread)
+	}
+	return nil
+}
+
+func runDaemon(ctx context.Context, args []string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	if err := cfg.Validate(); err != nil {
+		return err
+	}
+	sub := ""
+	if len(args) > 0 {
+		sub = args[0]
+	}
+	switch sub {
+	case "":
+		log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+		return daemon.Run(ctx, cfg, log)
+	case "status", "stop":
+		c, err := daemon.Connect(ctx, cfg, false)
+		if err != nil {
+			return err
+		}
+		defer c.Close()
+		if sub == "stop" {
+			if err := c.Call(ctx, ipc.MethodShutdown, nil, nil); err != nil {
+				return err
+			}
+			// Wait until the socket stops answering, so a command run right
+			// after this doesn't connect to the exiting daemon.
+			for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+				probe, err := ipc.Dial(ctx, cfg.Paths.Socket)
+				if err != nil {
+					fmt.Println("Daemon stopped.")
+					return nil
+				}
+				probe.Close()
+			}
+			return errors.New("daemon acknowledged shutdown but is still running")
+		}
+		var st ipc.Status
+		if err := c.Call(ctx, ipc.MethodStatus, nil, &st); err != nil {
+			return err
+		}
+		fmt.Printf("state:     %s\npid:       %d\n", st.State, st.PID)
+		if st.LastSync != 0 {
+			fmt.Printf("last sync: %s\n", time.Unix(st.LastSync, 0).Format(time.DateTime))
+		}
+		if st.LastError != "" {
+			fmt.Printf("error:     %s\n", st.LastError)
+		}
+		return nil
+	}
+	return fmt.Errorf("unknown daemon subcommand %q", sub)
 }
 
 func runWhoami(ctx context.Context) error {

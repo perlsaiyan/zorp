@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -15,6 +16,7 @@ const appName = "zorp"
 // Config is the contents of ~/.config/zorp/config.toml.
 type Config struct {
 	Auth Auth `toml:"auth"`
+	Sync Sync `toml:"sync"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
@@ -27,15 +29,35 @@ type Auth struct {
 	Tenant string `toml:"tenant"`
 }
 
+type Sync struct {
+	// Interval between delta polls.
+	Interval time.Duration `toml:"interval"`
+	// InitialDays limits the first sync of a folder to mail received in the
+	// last N days. 0 means no limit.
+	InitialDays int `toml:"initial_days"`
+	// Folders whose messages are synced, by well-known name ("inbox",
+	// "sentitems", "drafts", "archive", ...) or display name. The folder
+	// list itself is always synced in full.
+	Folders []string `toml:"folders"`
+}
+
 type Paths struct {
 	ConfigFile string
 	DataDir    string
 	TokenCache string
+	DB         string
+	Socket     string
+	DaemonLog  string
 }
 
 func defaults() Config {
 	return Config{
 		Auth: Auth{Tenant: "organizations"},
+		Sync: Sync{
+			Interval:    60 * time.Second,
+			InitialDays: 90,
+			Folders:     []string{"inbox"},
+		},
 	}
 }
 
@@ -62,6 +84,9 @@ func (c *Config) Validate() error {
 	if c.Auth.Tenant == "" {
 		return fmt.Errorf("auth.tenant is empty in %s", c.Paths.ConfigFile)
 	}
+	if c.Sync.Interval < 10*time.Second {
+		return fmt.Errorf("sync.interval must be at least 10s in %s", c.Paths.ConfigFile)
+	}
 	return nil
 }
 
@@ -83,10 +108,16 @@ func resolvePaths() (Paths, error) {
 	configHome := envOr("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	dataHome := envOr("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	dataDir := filepath.Join(dataHome, appName)
+	// The socket belongs in the per-user runtime dir; fall back to the data
+	// dir (which is 0700) when it isn't set.
+	socketDir := envOr("XDG_RUNTIME_DIR", dataDir)
 	return Paths{
 		ConfigFile: filepath.Join(configHome, appName, "config.toml"),
 		DataDir:    dataDir,
 		TokenCache: filepath.Join(dataDir, "token_cache.json"),
+		DB:         filepath.Join(dataDir, "zorp.db"),
+		Socket:     filepath.Join(socketDir, appName+".sock"),
+		DaemonLog:  filepath.Join(dataDir, "daemon.log"),
 	}, nil
 }
 

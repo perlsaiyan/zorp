@@ -1,0 +1,4 @@
+{"@odata.context":"https://graph.microsoft.com/v1.0/$metadata#Collection(message)","@odata.deltaLink":"{{BASE}}/me/mailFolders/AAInbox/messages/delta?$deltatoken=d1",
+ "value":[
+  {"@odata.type":"#microsoft.graph.message","id":"m3","conversationId":"c3","internetMessageId":"","subject":"System notice","from":null,"toRecipients":[],"ccRecipients":[],"receivedDateTime":"2026-10-27T01:00:00Z","isRead":false,"hasAttachments":false,"importance":"low","flag":null,"categories":null,"bodyPreview":"","parentFolderId":"AAInbox"}
+ ]}

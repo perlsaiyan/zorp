@@ -1,0 +1,6 @@
+{"@odata.context":"https://graph.microsoft.com/v1.0/$metadata#Collection(message)","@odata.deltaLink":"{{BASE}}/me/mailFolders/AAInbox/messages/delta?$deltatoken=d2",
+ "value":[
+  {"@odata.type":"#microsoft.graph.message","id":"m1","conversationId":"c1","internetMessageId":"<m1@example.com>","subject":"Quarterly numbers","from":{"emailAddress":{"name":"Alice","address":"alice@example.com"}},"toRecipients":[],"ccRecipients":[],"receivedDateTime":"2026-10-26T09:00:00Z","isRead":true,"hasAttachments":true,"importance":"high","flag":{"flagStatus":"flagged"},"categories":[],"bodyPreview":"See attached.","parentFolderId":"AAInbox"},
+  {"@odata.type":"#microsoft.graph.message","id":"m2","@removed":{"reason":"deleted"}},
+  {"@odata.type":"#microsoft.graph.message","id":"m4","conversationId":"c4","internetMessageId":"<m4@example.com>","subject":"New thing","from":{"emailAddress":{"name":"Carol","address":"carol@example.com"}},"toRecipients":[],"ccRecipients":[],"receivedDateTime":"2026-10-27T10:00:00Z","isRead":false,"hasAttachments":false,"importance":"normal","flag":{"flagStatus":"notFlagged"},"categories":[],"bodyPreview":"Hi","parentFolderId":"AAInbox"}
+ ]}
