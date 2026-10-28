@@ -100,6 +100,8 @@ outbox(id, account_id, message_graph_id, op, payload_json, created_at, attempts,
 
 `messages.graph_id` is an immutable ID (section 5) and is `UNIQUE(account_id, graph_id)`; delta upserts key on it, so a message moved between folders updates one row instead of creating a duplicate.
 
+*(ZORP-9)* A delta item for a changed message can carry **only the changed properties**: a read-state change arrives as `@odata.type`, `id`, `isRead`, `parentFolderId`. Items without `receivedDateTime` are treated as partial and fetched in full (`$batch`, `messageSelect`) before upserting, so a summary is never overwritten with blanks. Each sync also re-fetches any synced rows with no received date (`BlankMessages`), which repairs rows damaged before the fix.
+
 Rules:
 
 - The UI reads **only from SQLite**. The daemon syncs and pushes change events to the TUI over the socket, which become Bubble Tea messages.

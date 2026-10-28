@@ -2,6 +2,7 @@ package mailsync
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -28,7 +29,8 @@ type fakeGraph struct {
 
 	mu            sync.Mutex
 	deltaQueries  []string
-	expireTokenD2 bool // answer $deltatoken=d2 with SyncStateNotFound
+	batched       []int // sizes of $batch requests
+	expireTokenD2 bool  // answer $deltatoken=d2 with SyncStateNotFound
 }
 
 func newFakeGraph(t *testing.T) *fakeGraph {
@@ -84,6 +86,29 @@ func (f *fakeGraph) serve(w http.ResponseWriter, r *http.Request) {
 		default:
 			f.fixture(w, "delta_initial_1.json")
 		}
+	case "/$batch":
+		// Full fetches of partial delta items: m1, as now read.
+		var req struct {
+			Requests []struct {
+				ID  string `json:"id"`
+				URL string `json:"url"`
+			} `json:"requests"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		f.mu.Lock()
+		f.batched = append(f.batched, len(req.Requests))
+		f.mu.Unlock()
+		var parts []string
+		for _, sub := range req.Requests {
+			if strings.HasPrefix(sub.URL, "/me/messages/m1?$select=") {
+				parts = append(parts, `{"id":"`+sub.ID+`","status":200,"body":{"id":"m1","conversationId":"c1","subject":"Quarterly numbers",
+					"from":{"emailAddress":{"name":"Alice","address":"alice@example.com"}},"receivedDateTime":"2026-10-26T09:00:00Z",
+					"isRead":true,"hasAttachments":true,"importance":"high","flag":{"flagStatus":"flagged"},"parentFolderId":"AAInbox"}}`)
+			} else {
+				parts = append(parts, `{"id":"`+sub.ID+`","status":404,"body":{"error":{"code":"ErrorItemNotFound"}}}`)
+			}
+		}
+		io.WriteString(w, `{"responses":[`+strings.Join(parts, ",")+`]}`)
 	case "/me/messages":
 		if q.Get("$search") != `"budget"` {
 			f.t.Errorf("$search = %q", q.Get("$search"))
@@ -184,8 +209,9 @@ func TestSyncInitialThenIncrementalThenExpired(t *testing.T) {
 	if _, ok := msgs["m2"]; ok {
 		t.Error("m2 should have been removed")
 	}
-	if !msgs["m1"].IsRead {
-		t.Error("m1 should be read")
+	// m1 came as a partial item (only isRead): fetched in full, not blanked.
+	if m1 := msgs["m1"]; !m1.IsRead || m1.Subject != "Quarterly numbers" || m1.From.Addr != "alice@example.com" || m1.ReceivedAt.IsZero() {
+		t.Errorf("m1 after partial update = %+v", m1)
 	}
 	if _, ok := msgs["m4"]; !ok {
 		t.Error("m4 should have been added")
@@ -280,5 +306,39 @@ func TestSearchServerCachesHits(t *testing.T) {
 	}
 	if _, err := st.MessageByGraphID(ctx, e.AccountID(), "s1"); err != store.ErrNotFound {
 		t.Errorf("hit not pruned: %v", err)
+	}
+}
+
+func TestSyncRepairsBlankMessages(t *testing.T) {
+	fg := newFakeGraph(t)
+	e, st := newTestEngine(t, fg)
+	ctx := context.Background()
+	for range 2 { // initial pass, then d1
+		if _, err := e.Sync(ctx, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	folders, _ := st.Folders(ctx, e.AccountID())
+	var inbox int64
+	for _, f := range folders {
+		if f.WellKnown == "inbox" {
+			inbox = f.ID
+		}
+	}
+	// A row wiped by an older zorp: only the ID and read state left.
+	if err := st.ApplyDelta(ctx, e.AccountID(), inbox, store.DeltaBatch{Upserts: []store.Message{{GraphID: "m1", IsRead: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	if blank, _ := st.BlankMessages(ctx, e.AccountID()); len(blank) != 1 {
+		t.Fatalf("blank = %+v", blank)
+	}
+	if _, err := e.Sync(ctx, false); err != nil { // d2: no changes
+		t.Fatal(err)
+	}
+	if m1 := inboxMessages(t, st, inbox)["m1"]; m1.Subject != "Quarterly numbers" || m1.ReceivedAt.IsZero() {
+		t.Errorf("m1 not repaired: %+v", m1)
+	}
+	if blank, _ := st.BlankMessages(ctx, e.AccountID()); len(blank) != 0 {
+		t.Errorf("still blank: %+v", blank)
 	}
 }

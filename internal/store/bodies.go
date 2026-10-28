@@ -57,6 +57,34 @@ func (s *Store) MessageBody(ctx context.Context, id int64) (b Body, fetched bool
 	return b, fetched, err
 }
 
+// BlankMessage is a cached message with no summary (see BlankMessages).
+type BlankMessage struct {
+	GraphID  string
+	FolderID int64
+}
+
+// BlankMessages finds synced messages with no received date: their
+// summary was overwritten by a partial delta item and needs fetching again.
+func (s *Store) BlankMessages(ctx context.Context, accountID int64) ([]BlankMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT graph_id, folder_id FROM messages
+		WHERE account_id = ? AND deleted = 0 AND from_search = 0 AND received_at <= 0
+		LIMIT 200`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BlankMessage
+	for rows.Next() {
+		var b BlankMessage
+		if err := rows.Scan(&b.GraphID, &b.FolderID); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
+}
+
 // MessageByGraphID returns one cached message's summary.
 func (s *Store) MessageByGraphID(ctx context.Context, accountID int64, graphID string) (Message, error) {
 	m, err := scanMessage(s.db.QueryRowContext(ctx,

@@ -93,6 +93,9 @@ func (e *Engine) Sync(ctx context.Context, refreshFolders bool) (*Result, error)
 		}
 		res.FolderResults = append(res.FolderResults, *fr)
 	}
+	if err := e.repairBlank(ctx, accountID); err != nil {
+		e.log.Warn("repairing blank messages", "err", err)
+	}
 	res.Duration = e.now().Sub(start)
 	return res, nil
 }
@@ -239,8 +242,12 @@ func (e *Engine) deltaPass(ctx context.Context, accountID int64, f store.Folder)
 		if err != nil {
 			return nil, err
 		}
+		full, err := e.fullMessages(ctx, page.Partial)
+		if err != nil {
+			return nil, err
+		}
 		batch := store.DeltaBatch{Removed: page.Removed}
-		for _, m := range page.Messages {
+		for _, m := range append(page.Messages, full...) {
 			batch.Upserts = append(batch.Upserts, toStore(m))
 			if seen != nil {
 				seen[m.ID] = true
@@ -267,6 +274,55 @@ func (e *Engine) deltaPass(ctx context.Context, accountID int64, f store.Folder)
 		}
 		link = page.NextLink
 	}
+}
+
+// fullMessages fetches messages in full by ID, for delta items that came
+// with only their changed properties. Messages that are gone are left out
+// (their removal comes in a later delta).
+func (e *Engine) fullMessages(ctx context.Context, ids []string) ([]graph.Message, error) {
+	var out []graph.Message
+	for len(ids) > 0 {
+		n := min(len(ids), graph.MaxBatch)
+		got, err := e.graph.Messages(ctx, ids[:n])
+		if err != nil {
+			return nil, err
+		}
+		for _, id := range ids[:n] {
+			if m, ok := got[id]; ok {
+				out = append(out, m)
+			}
+		}
+		ids = ids[n:]
+	}
+	return out, nil
+}
+
+// repairBlank re-fetches cached messages whose summary was wiped by a
+// partial delta item before zorp recognized them.
+func (e *Engine) repairBlank(ctx context.Context, accountID int64) error {
+	blank, err := e.store.BlankMessages(ctx, accountID)
+	if err != nil || len(blank) == 0 {
+		return err
+	}
+	byFolder := map[int64][]string{}
+	for _, b := range blank {
+		byFolder[b.FolderID] = append(byFolder[b.FolderID], b.GraphID)
+	}
+	for folderID, ids := range byFolder {
+		full, err := e.fullMessages(ctx, ids)
+		if err != nil {
+			return err
+		}
+		batch := store.DeltaBatch{}
+		for _, m := range full {
+			batch.Upserts = append(batch.Upserts, toStore(m))
+		}
+		if err := e.store.ApplyDelta(ctx, accountID, folderID, batch); err != nil {
+			return err
+		}
+		e.log.Info("repaired blank messages", "folder_id", folderID, "repaired", len(full), "of", len(ids))
+	}
+	return nil
 }
 
 func toStore(m graph.Message) store.Message {

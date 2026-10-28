@@ -2,7 +2,9 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -144,6 +146,9 @@ func (c *Client) WellKnownFolder(ctx context.Context, name string) (*MailFolder,
 type DeltaPage struct {
 	Messages []Message // added or changed
 	Removed  []string  // IDs that left the folder
+	// Partial are IDs of messages that changed but came with only the
+	// changed properties (e.g. isRead); fetch them in full (Messages).
+	Partial []string
 	// Exactly one of NextLink (more pages follow) or DeltaLink (pass complete,
 	// save for next time) is set.
 	NextLink  string
@@ -165,18 +170,31 @@ func (c *Client) InitialDeltaURL(folderID string, since time.Time) string {
 // InitialDeltaURL or a previous page's NextLink/DeltaLink.
 func (c *Client) MessagesDelta(ctx context.Context, link string) (*DeltaPage, error) {
 	var raw struct {
-		Value     []Message `json:"value"`
-		NextLink  string    `json:"@odata.nextLink"`
-		DeltaLink string    `json:"@odata.deltaLink"`
+		Value     []json.RawMessage `json:"value"`
+		NextLink  string            `json:"@odata.nextLink"`
+		DeltaLink string            `json:"@odata.deltaLink"`
 	}
 	if err := c.get(ctx, link, &raw, "odata.maxpagesize=100"); err != nil {
 		return nil, err
 	}
 	page := &DeltaPage{NextLink: raw.NextLink, DeltaLink: raw.DeltaLink}
-	for _, m := range raw.Value {
-		if m.Removed != nil {
+	for _, item := range raw.Value {
+		var m Message
+		// Every full item has receivedDateTime; an update can come with
+		// only the properties that changed.
+		var has struct {
+			Received json.RawMessage `json:"receivedDateTime"`
+		}
+		if err := json.Unmarshal(item, &m); err != nil {
+			return nil, fmt.Errorf("graph: delta item: %w", err)
+		}
+		json.Unmarshal(item, &has)
+		switch {
+		case m.Removed != nil:
 			page.Removed = append(page.Removed, m.ID)
-		} else {
+		case has.Received == nil:
+			page.Partial = append(page.Partial, m.ID)
+		default:
 			page.Messages = append(page.Messages, m)
 		}
 	}

@@ -37,9 +37,21 @@ const MaxBatch = 20
 
 // MessageBodies fetches up to MaxBatch message bodies (original format) and
 // attachment lists in one $batch request. The result maps message ID to
-// content; IDs whose individual
-// request failed (e.g. throttled or deleted) are left out, to be retried later.
+// content; IDs whose individual request failed (e.g. throttled or deleted)
+// are left out, to be retried later.
 func (c *Client) MessageBodies(ctx context.Context, ids []string) (map[string]MessageContent, error) {
+	return batchGet[MessageContent](ctx, c, ids, contentQuery)
+}
+
+// Messages fetches up to MaxBatch message summaries by ID in one $batch
+// request. IDs that failed (deleted, say) are left out.
+func (c *Client) Messages(ctx context.Context, ids []string) (map[string]Message, error) {
+	return batchGet[Message](ctx, c, ids, "?$select="+messageSelect)
+}
+
+// batchGet GETs /me/messages/{id}+query for each ID in one $batch request
+// and decodes the successful responses.
+func batchGet[T any](ctx context.Context, c *Client, ids []string, query string) (map[string]T, error) {
 	if len(ids) > MaxBatch {
 		return nil, fmt.Errorf("graph: %d requests exceeds batch limit of %d", len(ids), MaxBatch)
 	}
@@ -56,7 +68,7 @@ func (c *Client) MessageBodies(ctx context.Context, ids []string) (map[string]Me
 		req.Requests = append(req.Requests, subRequest{
 			ID:     strconv.Itoa(i),
 			Method: "GET",
-			URL:    "/me/messages/" + url.PathEscape(id) + contentQuery,
+			URL:    "/me/messages/" + url.PathEscape(id) + query,
 			// Headers on the outer request don't apply to the parts.
 			Headers: map[string]string{"Prefer": `IdType="ImmutableId"`},
 		})
@@ -71,15 +83,15 @@ func (c *Client) MessageBodies(ctx context.Context, ids []string) (map[string]Me
 	if err := c.post(ctx, "/$batch", req, &resp); err != nil {
 		return nil, err
 	}
-	out := make(map[string]MessageContent, len(ids))
+	out := make(map[string]T, len(ids))
 	for _, r := range resp.Responses {
 		i, err := strconv.Atoi(r.ID)
 		if err != nil || i < 0 || i >= len(ids) || r.Status/100 != 2 {
 			continue
 		}
-		var m MessageContent
-		if json.Unmarshal(r.Body, &m) == nil {
-			out[ids[i]] = m
+		var v T
+		if json.Unmarshal(r.Body, &v) == nil {
+			out[ids[i]] = v
 		}
 	}
 	return out, nil
