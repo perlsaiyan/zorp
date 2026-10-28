@@ -832,3 +832,56 @@ func TestGraphicsOffKeepsTextPlaceholders(t *testing.T) {
 		t.Error("images loaded with graphics off")
 	}
 }
+
+// archiveCurrent does what the daemon does when a is pressed: moves the
+// message (to Apples here) and reports the change.
+func archiveCurrent(t *testing.T, m *Model) store.Message {
+	t.Helper()
+	cur, _ := m.currentMessage()
+	press(m, "a") // the daemon call it returns isn't run
+	ctx := context.Background()
+	dest, err := m.st.FolderByName(ctx, m.account.ID, "Apples")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.st.Enqueue(ctx, m.account.ID, cur.GraphID, store.Mutation{Kind: store.OpMove, Dest: dest}); err != nil {
+		t.Fatal(err)
+	}
+	return cur
+}
+
+func TestCursorMovesToNextAfterArchive(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 20})
+	press(m, "j", "j", "j", "j", "j")
+	next := m.msgs[m.msgCur+1]
+	archiveCurrent(t, m)
+	deliver(m, m.handleEvent(ipc.Event{Name: ipc.EventChanged}))
+	if got, _ := m.currentMessage(); got.GraphID != next.GraphID || m.msgCur != 5 {
+		t.Errorf("folder: cursor on %s (row %d), want %s (row 5)", got.GraphID, m.msgCur, next.GraphID)
+	}
+
+	// In search results the archived message still matches (now in
+	// Apples); the cursor moves past it and the list doesn't scroll back.
+	press(m, "/")
+	typeText(m, "number")
+	deliver(m, submit(m))
+	for range 20 {
+		press(m, "j")
+	}
+	row, top := m.msgCur, m.msgTop
+	next = m.msgs[row+1]
+	archived := archiveCurrent(t, m)
+	deliver(m, m.refreshSearch())
+	if got, _ := m.currentMessage(); got.GraphID != next.GraphID || m.msgCur != row+1 || m.msgTop < top {
+		t.Errorf("search: cursor on %s (row %d, top %d), want %s (row %d, top >= %d)", got.GraphID, m.msgCur, m.msgTop, next.GraphID, row+1, top)
+	}
+	if m.msgs[row].GraphID != archived.GraphID {
+		t.Error("archived message should still be listed in the results")
+	}
+	// Another refresh leaves the cursor where it is.
+	deliver(m, m.refreshSearch())
+	if got, _ := m.currentMessage(); got.GraphID != next.GraphID {
+		t.Errorf("second refresh moved the cursor to %s", got.GraphID)
+	}
+}

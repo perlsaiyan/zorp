@@ -159,13 +159,12 @@ func (m *Model) handleSearchResult(r searchResultMsg) tea.Cmd {
 		s.ids = r.ids
 	}
 	prev, _ := m.currentMessage()
-	m.setResults(r.msgs)
 	if r.keep != "" {
-		for i, msg := range m.msgs {
-			if msg.GraphID == r.keep {
-				m.msgCur = i
-			}
-		}
+		// A refresh of the same search: keep the cursor and scroll.
+		m.msgs = r.msgs
+		m.msgCur = m.cursorAfterRefresh(r.keep, m.msgCur)
+	} else {
+		m.setResults(r.msgs)
 	}
 	m.ensureVisible()
 	if cur, ok := m.currentMessage(); !ok || cur.ID != prev.ID {

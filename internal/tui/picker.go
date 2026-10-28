@@ -129,6 +129,7 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 			case pickFile:
 				return m.attachFile(c.path)
 			}
+			m.leaving = p.graphID
 			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: c.folderID})
 		}
 	case "ctrl+s":

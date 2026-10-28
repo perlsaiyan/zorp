@@ -84,6 +84,9 @@ type Model struct {
 	composing  *composing       // message being written (review screen)
 	viewer     *viewer          // attachment shown full screen
 	gfx        gfxState         // inline images (Kitty graphics)
+	// leaving is a message just archived, deleted or moved: when the list
+	// refreshes, the cursor goes to the message after it.
+	leaving string
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -149,12 +152,7 @@ func (m *Model) applyLoaded(l loadedMsg) {
 		m.msgCur, m.msgTop = 0, 0
 	}
 	if l.keep != "" {
-		for i, msg := range m.msgs {
-			if msg.GraphID == l.keep {
-				m.msgCur = i
-				break
-			}
-		}
+		m.msgCur = m.cursorAfterRefresh(l.keep, m.msgCur)
 	}
 	m.msgCur = clamp(m.msgCur, 0, len(m.msgs)-1)
 	for i, f := range m.folders {
@@ -163,6 +161,26 @@ func (m *Model) applyLoaded(l loadedMsg) {
 		}
 	}
 	m.folderCur = clamp(m.folderCur, 0, len(m.folders)-1)
+}
+
+// cursorAfterRefresh is where the cursor goes when the list was re-read:
+// on keep (the message it was on), or the one after it if keep was just
+// archived, deleted or moved but is still listed (search results). If
+// keep is gone, the cursor stays at the same row, now the next message.
+func (m *Model) cursorAfterRefresh(keep string, old int) int {
+	leaving := keep == m.leaving
+	if leaving {
+		m.leaving = ""
+	}
+	for i, msg := range m.msgs {
+		if msg.GraphID == keep {
+			if leaving && i+1 < len(m.msgs) {
+				return i + 1
+			}
+			return i
+		}
+	}
+	return clamp(old, 0, len(m.msgs)-1)
 }
 
 // selectMessage starts loading the body of the message under the cursor.
@@ -379,6 +397,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case mutateDoneMsg:
 		if msg.err != nil {
 			m.errText = msg.err.Error()
+			m.leaving = ""
 		}
 		return m, nil
 
@@ -444,6 +463,7 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		c := m.confirm
 		m.confirm = nil
 		if key == "y" || key == "Y" {
+			m.leaving = c.leaving
 			return c.cmd
 		}
 		return nil
@@ -670,14 +690,16 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		}
 		return one(ipc.OpFlag), true
 	case "d":
+		m.leaving = msg.GraphID
 		if m.cfg.Keys.DeleteArchives {
 			return one(ipc.OpArchive), true
 		}
 		return one(ipc.OpDelete), true
 	case "X":
-		m.confirm = &confirm{prompt: "Delete this message (move to Deleted Items)? y/n", cmd: one(ipc.OpDelete)}
+		m.confirm = &confirm{prompt: "Delete this message (move to Deleted Items)? y/n", cmd: one(ipc.OpDelete), leaving: msg.GraphID}
 		return nil, true
 	case "a":
+		m.leaving = msg.GraphID
 		return one(ipc.OpArchive), true
 	case "m":
 		m.openMovePicker()
@@ -737,8 +759,9 @@ func (m *Model) toggleFolderSync(on bool) tea.Cmd {
 
 // confirm is a pending y/n question; any key but y cancels.
 type confirm struct {
-	prompt string
-	cmd    tea.Cmd
+	prompt  string
+	cmd     tea.Cmd
+	leaving string // set as Model.leaving on y
 }
 
 func parseBody(b store.Body) *render.Doc {
