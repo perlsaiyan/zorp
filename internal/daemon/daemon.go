@@ -45,6 +45,7 @@ type daemon struct {
 	mu                 sync.Mutex
 	status             ipc.Status
 	lastFolderRefresh  time.Time
+	offlineStreak      int       // syncs in a row that failed with a network error
 	desktopFailedUntil time.Time // desktop notifications failed; use the terminal until then
 }
 
@@ -300,7 +301,15 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 	if err != nil {
 		state := classifyError(err)
 		d.log.Warn("sync failed", "state", state, "err", err)
-		d.setState(state, err.Error())
+		d.mu.Lock()
+		if state == ipc.StateOffline {
+			d.offlineStreak++
+		} else {
+			d.offlineStreak = 0
+		}
+		streak := d.offlineStreak
+		d.mu.Unlock()
+		d.setState(state, shownError(state, streak, err))
 		return nil, err
 	}
 
@@ -319,6 +328,7 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 	d.status.State = ipc.StateIdle
 	d.status.LastSync = time.Now().Unix()
 	d.status.LastError = ""
+	d.offlineStreak = 0
 	st := d.status
 	d.mu.Unlock()
 	d.server.Broadcast(ipc.EventStatus, st)
@@ -336,6 +346,19 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 	}
 	d.notifyNew(ctx, res)
 	return res, nil
+}
+
+// offlineGrace is how many network failures in a row pass with only the
+// "offline" state before the error itself is reported: a request to Graph
+// that stalls now and then shouldn't put an error on screen.
+const offlineGrace = 1
+
+// shownError is the error a failed sync reports in the status.
+func shownError(state string, offlineStreak int, err error) string {
+	if state == ipc.StateOffline && offlineStreak <= offlineGrace {
+		return ""
+	}
+	return err.Error()
 }
 
 func isNetworkError(err error) bool {

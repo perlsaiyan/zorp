@@ -426,7 +426,7 @@ func (m *Model) syncState() string {
 	case ipc.StateSyncing:
 		return "syncing…"
 	case ipc.StateOffline:
-		return "offline"
+		return "offline, retrying"
 	case ipc.StateNeedsLogin:
 		return "login needed: press L"
 	case ipc.StateStarting:

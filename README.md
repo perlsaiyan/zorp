@@ -218,7 +218,7 @@ save_dir = "~/Downloads"             # where s saves attachments
 
 ## Syncing
 
-A background daemon keeps a local SQLite cache (`~/.local/share/zorp/zorp.db`) in sync with Graph using delta queries, polling every 60 seconds. Commands that need it start it automatically; it logs to `~/.local/share/zorp/daemon.log`.
+A background daemon keeps a local SQLite cache (`~/.local/share/zorp/zorp.db`) in sync with Graph using delta queries, polling every 60 seconds. Commands that need it start it automatically; it logs to `~/.local/share/zorp/daemon.log`. If Microsoft doesn't answer, the top bar shows "offline, retrying". The error itself appears only if the next sync fails too.
 
 ```sh
 zorp sync             # sync now and print counts
