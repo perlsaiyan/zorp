@@ -11,7 +11,7 @@ for arch in amd64 arm64; do
 	mkdir -p "dist/$name"
 	CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
 		-ldflags "-s -w -X main.version=$version" -o "dist/$name/zorp" ./cmd/zorp
-	cp README.md DEPLOY.md "dist/$name/"
+	cp README.md DEPLOY.md LICENSE "dist/$name/"
 	cp -r contrib "dist/$name/"
 	tar -C dist -czf "dist/$name.tar.gz" "$name"
 	rm -rf "dist/$name"

@@ -337,3 +337,7 @@ The first time you sign in with a work account, your organization decides whethe
 - **How to grant:** Entra admin center → Enterprise applications → zorp → Permissions → Grant admin consent (the app appears there after your first sign-in attempt), or open `https://login.microsoftonline.com/<tenant-id>/adminconsent?client_id=<client_id>` as an admin
 
 If sign-in is blocked by Conditional Access (`AADSTS53003`), try `zorp login --browser`; device code flow is commonly blocked while browser sign-in is allowed.
+
+## License
+
+MIT; see [LICENSE](LICENSE).
