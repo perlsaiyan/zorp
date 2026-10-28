@@ -43,17 +43,18 @@ type picker struct {
 	title   string
 	query   string
 	cursor  int
-	graphID string // message being moved
+	graphID string   // message whose attachments are listed
+	moving  []string // messages being moved
 	all     []choice
 	matches []choice
 }
 
-func (m *Model) openMovePicker() {
-	msg, ok := m.currentMessage()
-	if !ok {
-		return
+func (m *Model) openMovePicker(ids []string) {
+	title := "Move to folder"
+	if len(ids) > 1 {
+		title = "Move " + strconv.Itoa(len(ids)) + " messages to folder"
 	}
-	p := &picker{kind: pickMove, title: "Move to folder", graphID: msg.GraphID}
+	p := &picker{kind: pickMove, title: title, moving: ids}
 	for _, f := range m.folders {
 		if f.ID != m.folderID {
 			p.all = append(p.all, choice{label: clean(f.Name), indent: f.depth, folderID: f.ID})
@@ -129,8 +130,11 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 			case pickFile:
 				return m.attachFile(c.path)
 			}
-			m.leaving = p.graphID
-			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: c.folderID})
+			if len(p.moving) == 1 {
+				m.leaving = p.moving[0]
+			}
+			m.selected = nil
+			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: p.moving, FolderID: c.folderID})
 		}
 	case "ctrl+s":
 		if p.kind == pickOpen && p.cursor < len(p.matches) {

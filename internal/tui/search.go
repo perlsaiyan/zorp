@@ -119,6 +119,7 @@ func (m *Model) clearSearch() tea.Cmd {
 	}
 	m.search = nil
 	m.searchSeq++ // drop results still in flight
+	m.selected = nil
 	l := loadData(m.ctx, m.st, m.account.ID, m.folderID, "")
 	if l.err != nil {
 		m.errText = l.err.Error()
@@ -134,6 +135,7 @@ func (m *Model) clearSearch() tea.Cmd {
 func (m *Model) setResults(msgs []store.Message) {
 	m.msgs = msgs
 	m.msgCur, m.msgTop = 0, 0
+	m.selected = nil
 }
 
 func (m *Model) handleSearchResult(r searchResultMsg) tea.Cmd {
@@ -163,6 +165,7 @@ func (m *Model) handleSearchResult(r searchResultMsg) tea.Cmd {
 		// A refresh of the same search: keep the cursor and scroll.
 		m.msgs = r.msgs
 		m.msgCur = m.cursorAfterRefresh(r.keep, m.msgCur)
+		m.pruneSelection()
 	} else {
 		m.setResults(r.msgs)
 	}

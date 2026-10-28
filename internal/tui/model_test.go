@@ -885,3 +885,57 @@ func TestCursorMovesToNextAfterArchive(t *testing.T) {
 		t.Errorf("second refresh moved the cursor to %s", got.GraphID)
 	}
 }
+
+func TestSelection(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	first, second := m.msgs[0], m.msgs[1]
+	press(m, "space", "space")
+	if len(m.selected) != 2 || !m.selected[first.GraphID] || !m.selected[second.GraphID] || m.msgCur != 2 {
+		t.Fatalf("selected %v, cursor %d", m.selected, m.msgCur)
+	}
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "2 selected") || !strings.Contains(view, "✓N") && !strings.Contains(view, "✓ ") {
+		t.Errorf("selection not shown:\n%s", view)
+	}
+	press(m, "k", "space") // unselect the second
+	if len(m.selected) != 1 {
+		t.Errorf("toggle off: %v", m.selected)
+	}
+
+	// Archiving the selection asks first, with the count, and then clears it.
+	press(m, "a")
+	if m.confirm == nil || !strings.Contains(m.confirm.prompt, "Archive 1 message?") {
+		t.Fatalf("confirm = %+v", m.confirm)
+	}
+	if cmd := m.handleKey("y"); cmd == nil || len(m.selected) != 0 {
+		t.Errorf("y: cmd %v, selected %v", cmd, m.selected)
+	}
+
+	// * selects everything listed; again clears; esc clears too.
+	press(m, "*")
+	if len(m.selected) != len(m.msgs) {
+		t.Errorf("* selected %d of %d", len(m.selected), len(m.msgs))
+	}
+	press(m, "*")
+	if len(m.selected) != 0 {
+		t.Error("second * should clear")
+	}
+	press(m, "*", "esc")
+	if len(m.selected) != 0 {
+		t.Error("esc should clear")
+	}
+
+	// Move with a selection moves them all; reply still uses the cursor.
+	press(m, "space", "space", "space", "m")
+	if m.picker == nil || len(m.picker.moving) != 3 || !strings.Contains(m.picker.title, "3 messages") {
+		t.Fatalf("move picker = %+v", m.picker)
+	}
+	press(m, "esc")
+
+	// Selections don't survive opening another folder.
+	press(m, "g", "s")
+	if len(m.selected) != 0 {
+		t.Error("selection kept across folders")
+	}
+}

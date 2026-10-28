@@ -65,6 +65,8 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `X` | delete (moves to Deleted Items), after confirming |
 | `a` | archive |
 | `m` | move to a folder (type to filter, Enter to move) |
+| `Space` | select / unselect the message and move down (in the list) |
+| `*` | select every listed message, e.g. all search results (again: clear); `Esc` clears |
 | `c` | write a new message |
 | `r` / `R` | reply / reply to all |
 | `F` | forward |
@@ -85,7 +87,9 @@ Mail is shown as text: links become numbered footnotes (security-gateway rewrite
 
 Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
 
-Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
+With messages selected, `a`, `d`, `X` and `m` act on all of them (after a y/n with the count), and `u` and `f` mark them all read or flagged (or, if they all are already, unread or unflagged). Reply, forward and the other keys still use the message under the cursor. After archiving, deleting or moving, the cursor moves on to the next message.
+
+Message list markers: `✓` selected, `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
 
 ### Attachments
 

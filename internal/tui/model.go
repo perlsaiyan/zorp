@@ -86,7 +86,8 @@ type Model struct {
 	gfx        gfxState         // inline images (Kitty graphics)
 	// leaving is a message just archived, deleted or moved: when the list
 	// refreshes, the cursor goes to the message after it.
-	leaving string
+	leaving  string
+	selected map[string]bool // messages selected with space or *, by graph ID
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -150,7 +151,9 @@ func (m *Model) applyLoaded(l loadedMsg) {
 	m.msgs = l.msgs
 	if folderChanged {
 		m.msgCur, m.msgTop = 0, 0
+		m.selected = nil
 	}
+	m.pruneSelection()
 	if l.keep != "" {
 		m.msgCur = m.cursorAfterRefresh(l.keep, m.msgCur)
 	}
@@ -464,6 +467,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		m.confirm = nil
 		if key == "y" || key == "Y" {
 			m.leaving = c.leaving
+			if c.clearSelection {
+				m.selected = nil
+			}
 			return c.cmd
 		}
 		return nil
@@ -504,6 +510,10 @@ func (m *Model) handleKey(key string) tea.Cmd {
 
 	switch key {
 	case "q", "esc":
+		if key == "esc" && len(m.selected) > 0 {
+			m.selected = nil
+			return nil
+		}
 		if m.search != nil {
 			return m.clearSearch()
 		}
@@ -613,6 +623,10 @@ func (m *Model) listKey(key string) tea.Cmd {
 		return m.moveMessage(-len(m.msgs))
 	case "end", "G":
 		return m.moveMessage(len(m.msgs))
+	case "space":
+		return m.toggleSelected()
+	case "*":
+		m.selectAll()
 	case "enter", "v":
 		if _, ok := m.currentMessage(); ok {
 			m.reading = true
@@ -675,6 +689,11 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 	if !ok {
 		return nil, false
 	}
+	if len(m.selected) > 0 && !m.reading {
+		if cmd, ok := m.selectionKey(key); ok {
+			return cmd, true
+		}
+	}
 	one := func(op string) tea.Cmd {
 		return mutateCmd(m.cfg, ipc.MutateParams{Op: op, GraphIDs: []string{msg.GraphID}})
 	}
@@ -702,7 +721,7 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		m.leaving = msg.GraphID
 		return one(ipc.OpArchive), true
 	case "m":
-		m.openMovePicker()
+		m.openMovePicker([]string{msg.GraphID})
 		return nil, true
 	case "O":
 		m.openLinkPicker()
@@ -761,7 +780,8 @@ func (m *Model) toggleFolderSync(on bool) tea.Cmd {
 type confirm struct {
 	prompt  string
 	cmd     tea.Cmd
-	leaving string // set as Model.leaving on y
+	leaving        string // set as Model.leaving on y
+	clearSelection bool   // the selection was acted on
 }
 
 func parseBody(b store.Body) *render.Doc {

@@ -341,13 +341,20 @@ func (m *Model) listLines(w, h int) []string {
 		if folderW > 0 {
 			where = fit(clean(m.folderName(msg.FolderID)), folderW) + "  "
 		}
-		row := fmt.Sprintf(" %c%c%c %6s  %s%s  %s", status, flag, attach,
+		mark := ' '
+		if m.selected[msg.GraphID] {
+			mark = '✓'
+		}
+		row := fmt.Sprintf("%c%c%c%c %6s  %s%s  %s", mark, status, flag, attach,
 			shortDate(msg.ReceivedAt, now), where, fit(clean(who), fromW), subject)
 		row = fit(row, w)
 
 		style := lipgloss.NewStyle()
 		if !msg.IsRead {
 			style = style.Bold(true)
+		}
+		if mark != ' ' {
+			style = style.Inherit(styleAccent)
 		}
 		if idx == m.msgCur {
 			if m.focus == paneList {
@@ -387,6 +394,9 @@ func (m *Model) topBar() string {
 	}
 	if m.reading && len(m.msgs) > 0 {
 		left += fmt.Sprintf("  │  message %d of %d", m.msgCur+1, len(m.msgs))
+	}
+	if n := len(m.selected); n > 0 {
+		left += fmt.Sprintf("  │  %d selected", n)
 	}
 	right := m.syncState() + " "
 	if m.status.Pending > 0 {
@@ -452,12 +462,14 @@ func (m *Model) bottomBar() string {
 		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  V attachments  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
+	case len(m.selected) > 0 && m.focus == paneList:
+		hints = strconv.Itoa(len(m.selected)) + " selected:  a archive  d " + m.dLabel() + "  m move  u read/unread  f flag  space toggle  * all  esc clear"
 	case m.focus == paneFolders:
 		hints = "j/k move  ⏎ open folder  + sync  - stop syncing  tab pane  b hide folders  ? help  q quit"
 	case m.focus == panePreview:
 		hints = "j/k scroll  space/- page  tab pane  w layout  ? help  q quit"
 	case m.search != nil:
-		hints = "j/k move  ⏎ open  / edit search  esc back to folder  u read/unread  f flag  d " + m.dLabel() + "  m move  ? help"
+		hints = "j/k move  ⏎ open  space select  * select all  / edit search  esc back to folder  d " + m.dLabel() + "  m move  ? help"
 	default:
 		hints = "j/k move  ⏎ open  / search  c compose  r reply  R all  F fwd  u unread  f flag  d " + m.dLabel() + "  m move  s save att  ? help  q quit"
 		if f, ok := m.currentFolder(); ok && f.WellKnown == "drafts" && m.search == nil {
@@ -518,6 +530,9 @@ func (m *Model) helpLines() []string {
 		"    pgdn / pgup       page down / up",
 		"    g g / G           first / last message",
 		"    enter, v          open message full screen (marks it read)",
+		"    space             select / unselect, and move down",
+		"    *                 select all listed (again: clear); esc clears",
+		"                      a, d, X, m, u, f then act on all selected",
 		"",
 		"  Search  (all folders; words match prefixes, all must match)",
 		`    budget "q3 report"   words and phrases in subject, sender or body`,
