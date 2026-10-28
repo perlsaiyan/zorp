@@ -224,6 +224,11 @@ Hard rules:
 - `search_messages` takes the TUI's query syntax plus structured filters (`from`, `to`, `folder`, `after`, `before`, `unread`, `flagged`, `has_attachments`). `server: true` uses the daemon's KQL search and the saved search hits.
 - Writes (only with `mcp.allow_writes`): `create_draft` builds a body from the compose templates, so signature, quoting and the Markdown reference marker match the TUI. Recipients and subject default as for a reply, a forward keeps the original's non-inline attachments, and `Send` is always false. `move_message` maps the archive and deleteditems folders to the daemon's archive and delete ops, so guardrails apply. Batches are capped at 500 IDs.
 
+### Notifications *(ZORP-15, as built)*
+- The engine marks a message as **new** in an incremental delta pass when its graph ID wasn't cached anywhere (`KnownGraphIDs`), so moves between cached folders don't count. Initial passes never notify. The `notify` package filters them (unread, configured folders, the `from` allowlist, not self, outside quiet hours) and builds one note per message, or a summary when there are more than `group_after`.
+- **Desktop:** `notify-send --action=default=Open --wait -- title body`, run without a shell. The body is HTML-escaped because servers may render markup, and every string is sanitized. The daemon first checks the session bus for an owner or activatable `org.freedesktop.Notifications`, because without one `notify-send --wait` hangs. A click broadcasts `open` (the TUI selects the message) and runs `notify.click_command`.
+- **Terminal fallback:** the daemon broadcasts a `notify` event. The TUI writes OSC 777 (Ghostty, foot, WezTerm), OSC 99 (kitty) or OSC 9, wrapped for tmux. `zorp notify-test` checks the setup.
+
 ## 9. AI features inside the TUI
 
 - Provider-agnostic: shell out to a configurable command (default: `claude -p`) or call an HTTP endpoint. Config: `ai.command = "claude -p"`.

@@ -23,12 +23,77 @@ type Config struct {
 	UI      UI      `toml:"ui"`
 	Compose Compose `toml:"compose"`
 	MCP     MCP     `toml:"mcp"`
+	Notify  Notify  `toml:"notify"`
 	// Theme overrides colours by role (see README: Colours), e.g.
 	// accent = "#89b4fa" or selected = "magenta".
 	Theme map[string]string `toml:"theme"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
+}
+
+// Notify configures new-mail notifications (sent by the daemon).
+type Notify struct {
+	Enabled bool `toml:"enabled"`
+	// Method is "auto" (desktop notifications where there's a desktop,
+	// else through the terminal zorp runs in), "desktop", "terminal" or
+	// "none".
+	Method string `toml:"method"`
+	// Folders to notify about, by name or well-known name.
+	Folders []string `toml:"folders"`
+	// From, if set, limits notifications to these senders: addresses or
+	// @domains.
+	From []string `toml:"from"`
+	// QuietHours is a daily "HH:MM-HH:MM" window (local time) without
+	// notifications, e.g. "22:00-07:00".
+	QuietHours string `toml:"quiet_hours"`
+	// ShowContent puts senders and subjects in notifications; false says
+	// only how many messages arrived.
+	ShowContent bool `toml:"show_content"`
+	// GroupAfter: more new messages than this at once make one summary.
+	GroupAfter int `toml:"group_after"`
+	// ClickCommand runs when a desktop notification is clicked, e.g. a
+	// script that focuses or opens zorp.
+	ClickCommand string `toml:"click_command"`
+}
+
+// QuietWindow parses QuietHours into minutes after midnight. ok is false
+// when there are no quiet hours.
+func (n Notify) QuietWindow() (from, to int, ok bool, err error) {
+	if strings.TrimSpace(n.QuietHours) == "" {
+		return 0, 0, false, nil
+	}
+	a, b, found := strings.Cut(n.QuietHours, "-")
+	if !found {
+		return 0, 0, false, fmt.Errorf("notify.quiet_hours %q isn't HH:MM-HH:MM", n.QuietHours)
+	}
+	parse := func(s string) (int, error) {
+		t, err := time.Parse("15:04", strings.TrimSpace(s))
+		if err != nil {
+			return 0, fmt.Errorf("notify.quiet_hours %q isn't HH:MM-HH:MM", n.QuietHours)
+		}
+		return t.Hour()*60 + t.Minute(), nil
+	}
+	if from, err = parse(a); err != nil {
+		return 0, 0, false, err
+	}
+	if to, err = parse(b); err != nil {
+		return 0, 0, false, err
+	}
+	return from, to, true, nil
+}
+
+// Quiet reports whether t falls in the quiet hours.
+func (n Notify) Quiet(t time.Time) bool {
+	from, to, ok, err := n.QuietWindow()
+	if !ok || err != nil {
+		return false
+	}
+	m := t.Hour()*60 + t.Minute()
+	if from <= to {
+		return m >= from && m < to
+	}
+	return m >= from || m < to // across midnight
 }
 
 // MCP configures `zorp mcp`, the server that gives AI tools access to the
@@ -204,6 +269,7 @@ func defaults() Config {
 		Keys:    Keys{DeleteArchives: true},
 		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
 		Compose: Compose{Format: "markdown"},
+		Notify:  Notify{Enabled: true, Method: "auto", Folders: []string{"inbox"}, ShowContent: true, GroupAfter: 3},
 	}
 }
 
@@ -237,6 +303,14 @@ func (c *Config) Validate() error {
 	case "", "auto", "tint", "ansi", "none":
 	default:
 		return fmt.Errorf("ui.color must be \"auto\", \"tint\", \"ansi\" or \"none\" in %s", c.Paths.ConfigFile)
+	}
+	switch c.Notify.Method {
+	case "auto", "desktop", "terminal", "none":
+	default:
+		return fmt.Errorf("notify.method must be \"auto\", \"desktop\", \"terminal\" or \"none\" in %s", c.Paths.ConfigFile)
+	}
+	if _, _, _, err := c.Notify.QuietWindow(); err != nil {
+		return fmt.Errorf("%w in %s", err, c.Paths.ConfigFile)
 	}
 	if c.Sync.Interval < 10*time.Second {
 		return fmt.Errorf("sync.interval must be at least 10s in %s", c.Paths.ConfigFile)

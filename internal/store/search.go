@@ -431,3 +431,34 @@ func (s *Store) MessagesInConversation(ctx context.Context, accountID int64, con
 	}
 	return scanMessages(rows)
 }
+
+// KnownGraphIDs reports which of ids are already cached (in any folder).
+func (s *Store) KnownGraphIDs(ctx context.Context, accountID int64, ids []string) (map[string]bool, error) {
+	known := map[string]bool{}
+	for len(ids) > 0 {
+		n := min(len(ids), 200)
+		args := []any{accountID}
+		for _, id := range ids[:n] {
+			args = append(args, id)
+		}
+		rows, err := s.db.QueryContext(ctx, `SELECT graph_id FROM messages WHERE account_id = ? AND graph_id IN (?`+
+			strings.Repeat(",?", n-1)+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id string
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			known[id] = true
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		ids = ids[n:]
+	}
+	return known, nil
+}

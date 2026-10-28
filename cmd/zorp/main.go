@@ -43,6 +43,7 @@ commands:
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
   daemon                         run the sync daemon in the foreground (for systemd or debugging)
+  notify-test                    send a test new-mail notification through the daemon
   mcp                            MCP server on stdio, for AI tools (read-only unless mcp.allow_writes)
 `
 
@@ -74,6 +75,8 @@ func main() {
 		err = runDaemon(ctx, args)
 	case "mcp":
 		err = runMCP(ctx)
+	case "notify-test":
+		err = runNotifyTest(ctx)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -546,4 +549,29 @@ func runMCP(ctx context.Context) error {
 	}
 	defer st.Close()
 	return mcpserver.New(cfg, st, account, nil).Run(ctx, &mcp.StdioTransport{})
+}
+
+func runNotifyTest(ctx context.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	c, err := daemon.Connect(ctx, cfg, true)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	var res ipc.NotifyTestResult
+	if err := c.Call(ctx, ipc.MethodNotifyTest, nil, &res); err != nil {
+		return err
+	}
+	switch res.Via {
+	case "desktop":
+		fmt.Println("Sent a desktop notification.")
+	case "terminal":
+		fmt.Println("No desktop notification server here; sent it to running zorp windows, which show it through the terminal.")
+	default:
+		fmt.Println("Notifications are off (notify.enabled / notify.method).")
+	}
+	return nil
 }

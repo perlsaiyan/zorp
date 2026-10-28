@@ -52,11 +52,17 @@ func (e *Engine) AccountID() int64 {
 type FolderResult struct {
 	FolderID int64  `json:"folder_id"`
 	Folder   string `json:"folder"`
-	Initial  bool   `json:"initial"` // from scratch, not incremental
-	Upserted int    `json:"upserted"`
-	Removed  int    `json:"removed"`
-	Total    int    `json:"total"` // cached messages after the pass
-	Unread   int    `json:"unread"`
+	// WellKnown is the folder's well-known name (inbox, …), if any.
+	WellKnown string `json:"well_known,omitempty"`
+	Initial   bool   `json:"initial"` // from scratch, not incremental
+	Upserted  int    `json:"upserted"`
+	Removed   int    `json:"removed"`
+	Total     int    `json:"total"` // cached messages after the pass
+	Unread    int    `json:"unread"`
+	// New are messages seen for the first time in an incremental pass
+	// (not moved in from another cached folder): candidates for a
+	// new-mail notification.
+	New []store.Message `json:"-"`
 }
 
 type Result struct {
@@ -221,7 +227,7 @@ func (e *Engine) syncFolder(ctx context.Context, accountID int64, f store.Folder
 // the old link is still stored, and replaying pages is harmless because
 // upserts and removals are idempotent.
 func (e *Engine) deltaPass(ctx context.Context, accountID int64, f store.Folder) (*FolderResult, error) {
-	fr := &FolderResult{FolderID: f.ID, Folder: f.Name, Initial: f.DeltaLink == ""}
+	fr := &FolderResult{FolderID: f.ID, Folder: f.Name, WellKnown: f.WellKnown, Initial: f.DeltaLink == ""}
 	var since time.Time
 	link := f.DeltaLink
 	if fr.Initial {
@@ -251,6 +257,21 @@ func (e *Engine) deltaPass(ctx context.Context, accountID int64, f store.Folder)
 			batch.Upserts = append(batch.Upserts, toStore(m))
 			if seen != nil {
 				seen[m.ID] = true
+			}
+		}
+		if !fr.Initial && len(page.Messages) > 0 {
+			ids := make([]string, 0, len(page.Messages))
+			for _, m := range page.Messages {
+				ids = append(ids, m.ID)
+			}
+			known, err := e.store.KnownGraphIDs(ctx, accountID, ids)
+			if err != nil {
+				return nil, err
+			}
+			for _, m := range batch.Upserts[:len(page.Messages)] {
+				if !known[m.GraphID] {
+					fr.New = append(fr.New, m)
+				}
 			}
 		}
 		if err := e.store.ApplyDelta(ctx, accountID, f.ID, batch); err != nil {

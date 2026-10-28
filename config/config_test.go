@@ -3,6 +3,7 @@ package config
 import (
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -53,5 +54,25 @@ func TestMaySendTo(t *testing.T) {
 	s = safety(t, "")
 	if !s.MayMoveTo("ZORP-TEST") || s.MayMoveTo("Archive") {
 		t.Error("moves in safe mode")
+	}
+}
+
+func TestNotifyQuietHours(t *testing.T) {
+	at := func(hm string) time.Time { tm, _ := time.Parse("15:04", hm); return tm }
+	n := Notify{QuietHours: "22:00-07:00"}
+	for hm, want := range map[string]bool{"23:30": true, "06:59": true, "07:00": false, "12:00": false, "22:00": true} {
+		if n.Quiet(at(hm)) != want {
+			t.Errorf("%s: quiet = %v", hm, !want)
+		}
+	}
+	day := Notify{QuietHours: "12:00-13:00"}
+	if !day.Quiet(at("12:30")) || day.Quiet(at("13:00")) {
+		t.Error("same-day window")
+	}
+	if _, _, _, err := (Notify{QuietHours: "10pm-7am"}).QuietWindow(); err == nil {
+		t.Error("bad quiet hours accepted")
+	}
+	if (Notify{}).Quiet(at("03:00")) {
+		t.Error("no quiet hours set")
 	}
 }

@@ -42,9 +42,10 @@ type daemon struct {
 	kick      chan struct{} // run a sync soon, without waiting for a reply
 	flushKick chan struct{} // send queued changes to Graph soon
 
-	mu                sync.Mutex
-	status            ipc.Status
-	lastFolderRefresh time.Time
+	mu                 sync.Mutex
+	status             ipc.Status
+	lastFolderRefresh  time.Time
+	desktopFailedUntil time.Time // desktop notifications failed; use the terminal until then
 }
 
 type syncRequest struct {
@@ -333,6 +334,7 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 	if len(changed.FolderIDs) > 0 || refresh {
 		d.server.Broadcast(ipc.EventChanged, changed)
 	}
+	d.notifyNew(ctx, res)
 	return res, nil
 }
 
@@ -440,6 +442,8 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return d.getDraft(ctx, params)
 	case ipc.MethodAttachList:
 		return d.listAttachments(ctx, params)
+	case ipc.MethodNotifyTest:
+		return d.notifyTest(), nil
 	case ipc.MethodOpenAttach:
 		return d.openAttachment(ctx, params)
 	case ipc.MethodSaveAttach:

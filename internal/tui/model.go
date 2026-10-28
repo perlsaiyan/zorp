@@ -17,6 +17,7 @@ import (
 	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/notify"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 	"github.com/perlsaiyan/zorp/internal/theme"
@@ -434,6 +435,16 @@ func (m *Model) handleEvent(ev ipc.Event) tea.Cmd {
 		if json.Unmarshal(ev.Data, &e) == nil {
 			m.errText = e.Message
 		}
+	case ipc.EventNotify:
+		var n ipc.Notify
+		if json.Unmarshal(ev.Data, &n) == nil {
+			return tea.Raw(notify.Terminal(notify.Note{Title: n.Title, Body: n.Body}, os.Getenv("TERM"), os.Getenv("TERM_PROGRAM"), os.Getenv("TMUX") != ""))
+		}
+	case ipc.EventOpen:
+		var r ipc.MessageRef
+		if json.Unmarshal(ev.Data, &r) == nil {
+			return m.showMessage(r.GraphID)
+		}
 	case ipc.EventChanged:
 		if m.search != nil {
 			return tea.Batch(loadCmd(m.st, m.account.ID, m.folderID, ""), m.refreshSearch())
@@ -755,6 +766,37 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		return m.listAttachmentsCmd(true), true
 	}
 	return nil, false
+}
+
+// showMessage puts the cursor on a message (a clicked notification): in
+// the current list if it's there, else in its folder.
+func (m *Model) showMessage(graphID string) tea.Cmd {
+	if m.composing != nil {
+		return nil // don't pull the review screen away
+	}
+	find := func() bool {
+		for i, msg := range m.msgs {
+			if msg.GraphID == graphID {
+				m.msgCur = i
+				return true
+			}
+		}
+		return false
+	}
+	if !find() {
+		msg, err := m.st.MessageByGraphID(m.ctx, m.account.ID, graphID)
+		if err != nil {
+			return nil
+		}
+		m.clearSearch()
+		m.openFolder(msg.FolderID)
+		if !find() {
+			return nil
+		}
+	}
+	m.picker, m.viewer, m.help = nil, nil, false
+	m.focus = paneList
+	return m.selectMessage()
 }
 
 // toggleFolderSync turns syncing of the folder under the cursor (in the

@@ -170,6 +170,9 @@ func TestSyncInitialThenIncrementalThenExpired(t *testing.T) {
 	if !fr.Initial || fr.Upserted != 3 || fr.Total != 3 || fr.Unread != 2 {
 		t.Errorf("pass 1 = %+v", fr)
 	}
+	if len(fr.New) != 0 {
+		t.Errorf("initial pass reported new mail: %d", len(fr.New))
+	}
 	if !strings.Contains(fg.deltaQueries[0], "receivedDateTime+ge+2026-07-29T12") {
 		t.Errorf("initial delta not limited to InitialDays: %s", fg.deltaQueries[0])
 	}
@@ -208,6 +211,11 @@ func TestSyncInitialThenIncrementalThenExpired(t *testing.T) {
 	msgs = inboxMessages(t, st, fr.FolderID)
 	if _, ok := msgs["m2"]; ok {
 		t.Error("m2 should have been removed")
+	}
+	// Only m4 is new (m1 was cached, and came as a partial update); the
+	// initial pass reported nothing as new.
+	if len(fr.New) != 1 || fr.New[0].GraphID != "m4" || fr.WellKnown != "inbox" {
+		t.Errorf("new in pass 2 = %+v", fr.New)
 	}
 	// m1 came as a partial item (only isRead): fetched in full, not blanked.
 	if m1 := msgs["m1"]; !m1.IsRead || m1.Subject != "Quarterly numbers" || m1.From.Addr != "alice@example.com" || m1.ReceivedAt.IsZero() {

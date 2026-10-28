@@ -26,6 +26,7 @@ const (
 	MethodSaveAttach = "save-attachment"
 	MethodImages     = "images"
 	MethodOpenAttach = "open-attachment"
+	MethodNotifyTest = "notify-test" // result: NotifyTestResult
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -35,7 +36,22 @@ const (
 	EventStatus  = "status"  // data: Status
 	EventChanged = "changed" // data: Changed
 	EventError   = "error"   // data: ErrorEvent
+	EventNotify  = "notify"  // data: Notify; show it through the terminal
+	EventOpen    = "open"    // data: MessageRef; a notification was clicked
 )
+
+// NotifyTestResult says how a test notification was sent.
+type NotifyTestResult struct {
+	Via string `json:"via"` // "desktop", "terminal" or "none"
+}
+
+// Notify is a new-mail notification for a client to show in its terminal
+// (when the daemon can't show it on a desktop).
+type Notify struct {
+	Title   string `json:"title"`
+	Body    string `json:"body"`
+	GraphID string `json:"graph_id,omitempty"`
+}
 
 type message struct {
 	ID     int64           `json:"id,omitempty"`

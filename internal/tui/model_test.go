@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"image/color"
@@ -964,5 +965,28 @@ func TestTerminalColorsTint(t *testing.T) {
 	m.rebuildTheme()
 	if strings.Contains(styleCursor.Render("x"), "48;2;") {
 		t.Error("ansi mode tinted")
+	}
+}
+
+func TestNotifyEvents(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	t.Setenv("TERM", "xterm-ghostty")
+	t.Setenv("TMUX", "")
+	data, _ := json.Marshal(ipc.Notify{Title: "Alice", Body: "Lunch?"})
+	cmd := m.handleEvent(ipc.Event{Name: ipc.EventNotify, Data: data})
+	if cmd == nil {
+		t.Fatal("no terminal notification")
+	}
+	if raw := fmt.Sprint(cmd()); !strings.Contains(raw, "]777;notify;Alice;Lunch?") {
+		t.Errorf("sequence = %q", raw)
+	}
+
+	// A clicked notification puts the cursor on the message.
+	target := m.msgs[7].GraphID
+	data, _ = json.Marshal(ipc.MessageRef{GraphID: target})
+	deliver(m, m.handleEvent(ipc.Event{Name: ipc.EventOpen, Data: data}))
+	if cur, _ := m.currentMessage(); cur.GraphID != target {
+		t.Errorf("cursor on %s, want %s", cur.GraphID, target)
 	}
 }

@@ -220,6 +220,26 @@ delete_archives = true  # d archives instead of deleting; X still deletes, after
 mouse = true            # click, scroll, drag dividers; Shift+drag to select text
 ```
 
+## Notifications
+
+When new mail arrives, the daemon shows a desktop notification with the sender and subject. It works with mako, dunst or any freedesktop notification server, through `notify-send`. Clicking it jumps a running zorp to the message and runs `notify.click_command` if you set one, for example to focus zorp's window.
+
+Where there's no desktop, as over SSH, running zorp windows show the notification through the terminal instead. This uses OSC 777 for Ghostty, foot and WezTerm, OSC 99 for kitty, and OSC 9 elsewhere.
+
+Only unread mail that is new to zorp counts, by default only in the Inbox, and never your own messages. The first sync never notifies, and neither does mail moved back in from another folder. When several messages arrive at once, you get one summary. `zorp notify-test` sends a test notification.
+
+```toml
+[notify]
+enabled = true
+method = "auto"            # "desktop", "terminal" or "none"
+folders = ["inbox"]
+from = []                  # only these senders: addresses or "@domain.com"
+quiet_hours = ""           # e.g. "22:00-07:00"
+show_content = true        # false: "3 new messages" only
+group_after = 3            # more at once than this: one summary
+click_command = ""         # e.g. "zorp-focus"
+```
+
 ## AI tools (MCP)
 
 `zorp mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio, so AI tools such as Claude Code and Claude Desktop can read your mail through zorp's cache. To add it to Claude Code:
