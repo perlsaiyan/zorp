@@ -91,12 +91,12 @@ type Model struct {
 	colors     colors           // what the terminal reported about its colours
 	// leaving is a message just archived, deleted or moved: when the list
 	// refreshes, the cursor goes to the message after it.
-	leaving  string
-	selected map[string]bool // messages selected with space or *, by graph ID
-	threaded bool                       // one row per conversation (T)
-	threads  map[string][]store.Message // when threaded: each row's messages, newest first
-	conv       *conversation // the whole conversation, in the reader
-	convAnchor int           // line of conv's first unread message
+	leaving    string
+	selected   map[string]bool            // messages selected with space or *, by graph ID
+	threaded   bool                       // one row per conversation (T)
+	threads    map[string][]store.Message // when threaded: each row's messages, newest first
+	conv       *conversation              // the whole conversation, in the reader
+	convAnchor int                        // line of conv's first unread message
 
 	daemonUp bool
 	events   <-chan ipc.Event
