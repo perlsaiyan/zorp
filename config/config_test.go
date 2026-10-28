@@ -21,7 +21,7 @@ func TestGuardrails(t *testing.T) {
 	cases := map[string][]string{
 		``:                           nil, // no guardrails by default
 		"[safety]\nsafe_mode = true": {"send", "move", "delete"},
-		"[safety]\nsafe_mode = true\nallow_send = true":                   {"move", "delete"},
+		"[safety]\nsafe_mode = true\nallow_send = true":                    {"move", "delete"},
 		"[safety]\nsafe_mode = true\nallow_send = true\nallow_move = true": {"delete"},
 		"[safety]\nallow_delete = false":                                   {"delete"},
 	}
