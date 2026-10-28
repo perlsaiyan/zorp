@@ -157,8 +157,16 @@ func loadImages(cfg *config.Config, seq int, msgID int64, graphID string, width,
 
 // imagesReady transmits the images and redraws the preview with them.
 func (m *Model) imagesReady(r imagesMsg) tea.Cmd {
-	if r.msgID != m.gfx.msgID || r.width != m.gfx.width {
-		return nil // the selection or pane changed meanwhile
+	if r.msgID != m.gfx.msgID {
+		return nil // the selection changed meanwhile; its own load is running
+	}
+	if r.width != m.gfx.width {
+		// Same message, but the pane was resized or the terminal reported its
+		// cell size while this was loading. maybeLoadImages skipped the new
+		// width because a load was running, so this result is the last one
+		// coming: clear the flag and load again, or the placeholders stay.
+		m.gfx.loading = false
+		return m.maybeLoadImages()
 	}
 	m.gfx.loading = false
 	if r.err != nil {
