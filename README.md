@@ -69,6 +69,7 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `X` | delete (moves to Deleted Items), after confirming |
 | `a` | archive |
 | `m` | move to a folder (type to filter, Enter to move) |
+| `T` | conversations: one row per conversation, or every message (remembered) |
 | `Space` | select / unselect the message and move down (in the list) |
 | `*` | select every listed message, e.g. all search results (again: clear); `Esc` clears |
 | `c` | write a new message |
@@ -90,6 +91,8 @@ With the mouse you can click messages and folders, scroll with the wheel, and dr
 Mail is shown as text: links become numbered footnotes (security-gateway rewrites like Check Point and Safe Links are unwrapped for display, but the original link is what gets opened), quoted reply history and `-- ` signatures are folded, and images appear as `[image: …]` placeholders. Remote images are never downloaded.
 
 Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
+
+In the conversation view (`T`), each row stands for a whole conversation in the folder or search results. It shows the newest message, a count like `(6)`, and it's unread or flagged if any message in it is. Archive, delete, move and selection apply to every message in the conversation. `u` marks it all read, or the newest message unread if everything is read already. `f` clears its flags, or flags the newest message. Enter reads the whole conversation, oldest first, starting at the first unread message. That includes your replies from Sent Items, and quoted history is folded (`z` shows it).
 
 With messages selected, `a`, `d`, `X` and `m` act on all of them (after a y/n with the count), and `u` and `f` mark them all read or flagged (or, if they all are already, unread or unflagged). Reply, forward and the other keys still use the message under the cursor. After archiving, deleting or moving, the cursor moves on to the next message.
 

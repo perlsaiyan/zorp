@@ -133,7 +133,7 @@ func (m *Model) clearSearch() tea.Cmd {
 
 // setResults shows msgs in the list with the cursor on keep, or the top.
 func (m *Model) setResults(msgs []store.Message) {
-	m.msgs = msgs
+	m.setList(msgs)
 	m.msgCur, m.msgTop = 0, 0
 	m.selected = nil
 }
@@ -163,7 +163,7 @@ func (m *Model) handleSearchResult(r searchResultMsg) tea.Cmd {
 	prev, _ := m.currentMessage()
 	if r.keep != "" {
 		// A refresh of the same search: keep the cursor and scroll.
-		m.msgs = r.msgs
+		m.setList(r.msgs)
 		m.msgCur = m.cursorAfterRefresh(r.keep, m.msgCur)
 		m.pruneSelection()
 	} else {

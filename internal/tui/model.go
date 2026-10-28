@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -52,7 +53,8 @@ type Model struct {
 	folderCur int   // cursor in the folder pane
 	folderID  int64 // folder whose messages are listed
 
-	msgs    []store.Message
+	msgs    []store.Message // the rows of the list
+	allMsgs []store.Message // every message listed, before collapsing into conversations
 	msgCur  int
 	msgTop  int // first visible row of the list
 	listLen int // rows the list showed in the last layout
@@ -91,6 +93,10 @@ type Model struct {
 	// refreshes, the cursor goes to the message after it.
 	leaving  string
 	selected map[string]bool // messages selected with space or *, by graph ID
+	threaded bool                       // one row per conversation (T)
+	threads  map[string][]store.Message // when threaded: each row's messages, newest first
+	conv       *conversation // the whole conversation, in the reader
+	convAnchor int           // line of conv's first unread message
 
 	daemonUp bool
 	events   <-chan ipc.Event
@@ -155,7 +161,7 @@ func (m *Model) applyLoaded(l loadedMsg) {
 	}
 	folderChanged := l.folderID != m.folderID
 	m.folderID = l.folderID
-	m.msgs = l.msgs
+	m.setList(l.msgs)
 	if folderChanged {
 		m.msgCur, m.msgTop = 0, 0
 		m.selected = nil
@@ -183,7 +189,10 @@ func (m *Model) cursorAfterRefresh(keep string, old int) int {
 		m.leaving = ""
 	}
 	for i, msg := range m.msgs {
-		if msg.GraphID == keep {
+		for _, mm := range m.members(msg) {
+			if mm.GraphID != keep {
+				continue
+			}
 			if leaving && i+1 < len(m.msgs) {
 				return i + 1
 			}
@@ -208,8 +217,9 @@ func (m *Model) selectMessage() tea.Cmd {
 	m.bodyID, m.bodyState, m.doc, m.bodyErr = msg.ID, bodyLoading, nil, ""
 	m.atts, m.attsKnown = nil, false
 	m.showQuoted = isForward(msg.Subject)
+	m.conv = nil
 	m.refreshPreview(true)
-	return readBodyCmd(m.st, m.bodySeq, msg.ID)
+	return tea.Batch(readBodyCmd(m.st, m.bodySeq, msg.ID), m.loadConversation())
 }
 
 func (m *Model) openFolder(id int64) tea.Cmd {
@@ -316,6 +326,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case openedMsg:
 		return m, m.opened(msg)
+
+	case convLoadedMsg:
+		m.conversationLoaded(msg)
+		return m, nil
 
 	case filesMsg:
 		m.openFilePicker(msg)
@@ -552,6 +566,8 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	case "g":
 		m.gPending = true
 		return nil
+	case "T":
+		return m.toggleThreaded()
 	case "tab":
 		m.cycleFocus(1)
 		return nil
@@ -651,7 +667,7 @@ func (m *Model) listKey(key string) tea.Cmd {
 		if _, ok := m.currentMessage(); ok {
 			m.reading = true
 			m.refreshPreview(true)
-			return m.markRead()
+			return tea.Batch(m.markRead(), m.loadConversation())
 		}
 	case "h", "left":
 		if m.showFolders {
@@ -665,6 +681,7 @@ func (m *Model) readerKey(key string) tea.Cmd {
 	switch key {
 	case "q", "esc", "h", "left":
 		m.reading = false
+		m.conv = nil
 		m.refreshPreview(false)
 	case "n", "J":
 		return tea.Batch(m.moveMessage(1), m.markRead())
@@ -714,20 +731,15 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 			return cmd, true
 		}
 	}
+	// In the conversation view a row stands for its whole conversation.
 	one := func(op string) tea.Cmd {
-		return mutateCmd(m.cfg, ipc.MutateParams{Op: op, GraphIDs: []string{msg.GraphID}})
+		return mutateCmd(m.cfg, ipc.MutateParams{Op: op, GraphIDs: m.memberIDs(msg)})
 	}
 	switch key {
 	case "u":
-		if msg.IsRead {
-			return one(ipc.OpUnread), true
-		}
-		return one(ipc.OpRead), true
+		return mutateCmd(m.cfg, m.readOp(msg)), true
 	case "f":
-		if msg.Flagged {
-			return one(ipc.OpUnflag), true
-		}
-		return one(ipc.OpFlag), true
+		return mutateCmd(m.cfg, m.flagOp(msg)), true
 	case "d":
 		m.leaving = msg.GraphID
 		if m.cfg.Keys.DeleteArchives {
@@ -735,13 +747,17 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		}
 		return one(ipc.OpDelete), true
 	case "X":
-		m.confirm = &confirm{prompt: "Delete this message (move to Deleted Items)? y/n", cmd: one(ipc.OpDelete), leaving: msg.GraphID}
+		what := "this message"
+		if n := len(m.members(msg)); n > 1 {
+			what = "this conversation (" + strconv.Itoa(n) + " messages)"
+		}
+		m.confirm = &confirm{prompt: "Delete " + what + " (move to Deleted Items)? y/n", cmd: one(ipc.OpDelete), leaving: msg.GraphID}
 		return nil, true
 	case "a":
 		m.leaving = msg.GraphID
 		return one(ipc.OpArchive), true
 	case "m":
-		m.openMovePicker([]string{msg.GraphID})
+		m.openMovePicker(m.memberIDs(msg))
 		return nil, true
 	case "O":
 		m.openLinkPicker()
@@ -776,9 +792,11 @@ func (m *Model) showMessage(graphID string) tea.Cmd {
 	}
 	find := func() bool {
 		for i, msg := range m.msgs {
-			if msg.GraphID == graphID {
-				m.msgCur = i
-				return true
+			for _, mm := range m.members(msg) {
+				if mm.GraphID == graphID {
+					m.msgCur = i
+					return true
+				}
 			}
 		}
 		return false
@@ -857,10 +875,19 @@ func isForward(subject string) bool {
 // current message rather than taking one.
 func (m *Model) markRead() tea.Cmd {
 	msg, ok := m.currentMessage()
-	if !ok || msg.IsRead {
+	if !ok {
 		return nil
 	}
-	return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpRead, GraphIDs: []string{msg.GraphID}})
+	var unread []string
+	for _, mm := range m.members(msg) {
+		if !mm.IsRead {
+			unread = append(unread, mm.GraphID)
+		}
+	}
+	if len(unread) == 0 {
+		return nil
+	}
+	return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpRead, GraphIDs: unread})
 }
 
 // waitNext keeps listening for daemon events after handling one.

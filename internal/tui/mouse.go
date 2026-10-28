@@ -24,6 +24,7 @@ type uiState struct {
 	ListHShare  float64 `json:"list_h_share,omitempty"`
 	Layout      layout  `json:"layout"`
 	HideFolders bool    `json:"hide_folders,omitempty"`
+	Threaded    bool    `json:"threaded,omitempty"`
 }
 
 func (m *Model) loadUIState() {
@@ -40,6 +41,7 @@ func (m *Model) loadUIState() {
 		m.layout = s.Layout
 	}
 	m.showFolders = !s.HideFolders
+	m.threaded = s.Threaded
 }
 
 // saveUIState remembers layout choices. Failures are ignored: it's a
@@ -50,7 +52,7 @@ func (m *Model) saveUIState() {
 	}
 	data, _ := json.Marshal(uiState{
 		FolderW: m.folderW, ListShare: m.listShare, ListHShare: m.listHShare,
-		Layout: m.layout, HideFolders: !m.showFolders,
+		Layout: m.layout, HideFolders: !m.showFolders, Threaded: m.threaded,
 	})
 	_ = os.WriteFile(m.cfg.Paths.UIState, data, 0o600)
 }

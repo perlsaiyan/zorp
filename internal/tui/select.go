@@ -64,7 +64,7 @@ func (m *Model) selectedIDs() []string {
 	var out []string
 	for _, msg := range m.msgs {
 		if m.selected[msg.GraphID] {
-			out = append(out, msg.GraphID)
+			out = append(out, m.memberIDs(msg)...)
 		}
 	}
 	return out
@@ -89,7 +89,7 @@ func (m *Model) selectionKey(key string) (tea.Cmd, bool) {
 	case "u":
 		o := ipc.OpUnread
 		for _, msg := range m.msgs {
-			if m.selected[msg.GraphID] && !msg.IsRead {
+			if unread, _, _, _ := m.rowState(msg); m.selected[msg.GraphID] && unread {
 				o = ipc.OpRead // any unread: mark them all read
 				break
 			}
@@ -99,7 +99,7 @@ func (m *Model) selectionKey(key string) (tea.Cmd, bool) {
 	case "f":
 		o := ipc.OpUnflag
 		for _, msg := range m.msgs {
-			if m.selected[msg.GraphID] && !msg.Flagged {
+			if _, flagged, _, _ := m.rowState(msg); m.selected[msg.GraphID] && !flagged {
 				o = ipc.OpFlag
 				break
 			}

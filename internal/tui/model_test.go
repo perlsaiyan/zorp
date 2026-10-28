@@ -990,3 +990,88 @@ func TestNotifyEvents(t *testing.T) {
 		t.Errorf("cursor on %s, want %s", cur.GraphID, target)
 	}
 }
+
+func TestConversationView(t *testing.T) {
+	m := newTestModel(t)
+	m.cfg.Paths.ComposeDir = t.TempDir()
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	ctx := context.Background()
+	// m45, m46 and m47 are one conversation; m46 is unread, m47 flagged.
+	var conv []store.Message
+	for _, id := range []string{"m45", "m46", "m47"} {
+		msg, err := m.st.MessageByGraphID(ctx, m.account.ID, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		msg.ConversationID = "c1"
+		msg.IsRead = id != "m46"
+		msg.Flagged = id == "m47"
+		conv = append(conv, msg)
+	}
+	m.st.ApplyDelta(ctx, m.account.ID, conv[0].FolderID, store.DeltaBatch{Upserts: conv})
+	m.st.SetBody(ctx, m.account.ID, "m45", store.Body{Type: "text", Text: "The first one."})
+	deliver(m, m.handleEvent(ipc.Event{Name: ipc.EventChanged}))
+	flat := len(m.msgs)
+
+	press(m, "T")
+	if !m.threaded || len(m.msgs) != flat-2 {
+		t.Fatalf("threaded rows = %d, flat %d", len(m.msgs), flat)
+	}
+	var row store.Message
+	for i, msg := range m.msgs {
+		if msg.ConversationID == "c1" {
+			row, m.msgCur = msg, i
+		}
+	}
+	if row.GraphID != "m47" || len(m.members(row)) != 3 {
+		t.Fatalf("row = %s, members %d", row.GraphID, len(m.members(row)))
+	}
+	if !strings.Contains(ansi.Strip(strings.Join(m.listLines(140, 38), "\n")), "(3) Subject number 47") {
+		t.Error("row doesn't show the count")
+	}
+	unread, flagged, _, n := m.rowState(row)
+	if !unread || !flagged || n != 3 {
+		t.Errorf("row state: unread %v flagged %v n %d", unread, flagged, n)
+	}
+	// u marks the unread one read; f clears the flag; archive takes all three.
+	if p := m.readOp(row); p.Op != ipc.OpRead || strings.Join(p.GraphIDs, ",") != "m46" {
+		t.Errorf("u = %+v", p)
+	}
+	if p := m.flagOp(row); p.Op != ipc.OpUnflag || strings.Join(p.GraphIDs, ",") != "m47" {
+		t.Errorf("f = %+v", p)
+	}
+	if ids := strings.Join(m.memberIDs(row), ","); ids != "m47,m46,m45" {
+		t.Errorf("members = %s", ids)
+	}
+	press(m, "space")
+	if ids := m.selectedIDs(); len(ids) != 3 {
+		t.Errorf("selecting the row selects %v", ids)
+	}
+	m.selected = nil
+	m.msgCur--
+
+	// Enter reads the whole conversation, oldest first, from the first unread.
+	cmd := m.handleKey("enter")
+	if cmd == nil {
+		t.Fatal("no command for enter")
+	}
+	r := convLoadedMsg{seq: m.bodySeq, c: readConversation(ctx, m.cfg, m.st, m.account.ID, row, nil)}
+	m.Update(r)
+	if m.conv == nil || len(m.conv.msgs) != 3 {
+		t.Fatalf("conversation = %+v", m.conv)
+	}
+	content := ansi.Strip(m.previewContent(120))
+	first, second := strings.Index(content, "The first one."), strings.Index(content, "Sender 46")
+	if !strings.Contains(content, "3 messages, oldest first") || first < 0 || second < first || !strings.Contains(content, "new") {
+		t.Errorf("conversation content:\n%s", content)
+	}
+	if m.convAnchor == 0 {
+		t.Error("should start at the unread message")
+	}
+
+	// T again shows every message, cursor still on that conversation.
+	press(m, "q", "T")
+	if cur, _ := m.currentMessage(); m.threaded || len(m.msgs) != flat || cur.ConversationID != "c1" {
+		t.Errorf("back to flat: threaded %v rows %d cursor %s", m.threaded, len(m.msgs), cur.GraphID)
+	}
+}

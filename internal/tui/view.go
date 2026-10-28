@@ -101,6 +101,9 @@ func (m *Model) previewContent(w int) string {
 	if !ok {
 		return ""
 	}
+	if m.reading && m.conv != nil {
+		return m.conversationContent(w)
+	}
 	var b strings.Builder
 	field := func(name, value string) {
 		if value == "" {
@@ -115,6 +118,13 @@ func (m *Model) previewContent(w int) string {
 	field("Date", msg.ReceivedAt.Local().Format("Mon, 02 Jan 2006 15:04"))
 	b.WriteString(ansi.Wrap(styleHeader.Render("Subject:")+" "+styleBold.Render(clean(msg.Subject)), w, ""))
 	b.WriteString("\n")
+	if n := len(m.members(msg)); n > 1 {
+		hint := "Enter reads them all"
+		if m.reading {
+			hint = "loading the conversation…"
+		}
+		field("Thread", strconv.Itoa(n)+" messages here"+styleFaint.Render("  ("+hint+")"))
+	}
 	if line := m.attachedLine(); line != "" {
 		field("Attached", line+styleFaint.Render("  (V open, s save)"))
 	}
@@ -302,19 +312,20 @@ func (m *Model) listLines(w, h int) []string {
 			continue
 		}
 		msg := m.msgs[idx]
+		unread, flagged, hasAtt, n := m.rowState(msg)
 		status := ' '
-		if !msg.IsRead {
+		if unread {
 			status = 'N'
 		}
 		flag := ' '
 		switch {
-		case msg.Flagged:
+		case flagged:
 			flag = '*'
 		case msg.Importance == "high":
 			flag = '!'
 		}
 		attach := ' '
-		if msg.HasAttachments {
+		if hasAtt {
 			attach = '+'
 		}
 		who := senderName(msg.From)
@@ -324,6 +335,9 @@ func (m *Model) listLines(w, h int) []string {
 		subject := clean(msg.Subject)
 		if subject == "" {
 			subject = "(no subject)"
+		}
+		if n > 1 {
+			subject = "(" + strconv.Itoa(n) + ") " + subject
 		}
 		where := ""
 		if folderW > 0 {
@@ -338,7 +352,7 @@ func (m *Model) listLines(w, h int) []string {
 		row = fit(row, w)
 
 		style := lipgloss.NewStyle()
-		if !msg.IsRead {
+		if unread {
 			style = style.Inherit(styleUnread)
 		}
 		selected := mark != ' '
@@ -460,6 +474,8 @@ func (m *Model) bottomBar() string {
 		hints = "j/k move  ⏎ open folder  + sync  - stop syncing  tab pane  b hide folders  ? help  q quit"
 	case m.focus == panePreview:
 		hints = "j/k scroll  space/- page  tab pane  w layout  ? help  q quit"
+	case m.search != nil && m.threaded:
+		hints = "j/k move  ⏎ read conversation  T every message  space select  / edit search  esc back  d " + m.dLabel() + "  ? help"
 	case m.search != nil:
 		hints = "j/k move  ⏎ open  space select  * select all  / edit search  esc back to folder  d " + m.dLabel() + "  m move  ? help"
 	default:
@@ -522,6 +538,8 @@ func (m *Model) helpLines() []string {
 		"    pgdn / pgup       page down / up",
 		"    g g / G           first / last message",
 		"    enter, v          open message full screen (marks it read)",
+		"    T                 conversations: one row per conversation, actions apply to",
+		"                      all of it, enter reads it all (oldest first); T again: every message",
 		"    space             select / unselect, and move down",
 		"    *                 select all listed (again: clear); esc clears",
 		"                      a, d, X, m, u, f then act on all selected",

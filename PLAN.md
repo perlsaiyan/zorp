@@ -143,7 +143,7 @@ Rules:
 | `o` | open message HTML in the default browser (write temp file with cid images inlined as data URIs) |
 | `O` | open link picker (extract URLs from the body, fuzzy select, `xdg-open`) |
 | `s` | save attachment(s) to `ui.save_dir` (picker; "All attachments" when several) *(M7)* |
-| `T` | toggle thread view (group by `conversationId`) |
+| `T` | toggle thread view (group by `conversationId`) *(built in M11: rows collapse by conversation in folders and search results; a row's actions cover its messages in the list; the reader loads `MessagesInConversation` across folders, skipping Deleted Items and Junk, and scrolls to the first unread)* |
 | `S` | AI summarize (section 9) |
 | `D` | AI draft reply (section 9) |
 | `?` | help |
