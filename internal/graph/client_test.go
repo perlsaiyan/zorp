@@ -105,19 +105,26 @@ func TestMessageBodiesBatch(t *testing.T) {
 			if !strings.Contains(p, `IdType="ImmutableId"`) {
 				t.Errorf("sub-request %s Prefer = %q", sub.ID, p)
 			}
+			if !strings.Contains(sub.URL, "$expand=attachments(") {
+				t.Errorf("sub-request %s doesn't expand attachments: %s", sub.ID, sub.URL)
+			}
 		}
 		// Responses arrive out of order; one is throttled.
 		w.Write([]byte(`{"responses":[
 			{"id":"2","status":200,"body":{"body":{"contentType":"text","content":"third"}}},
-			{"id":"0","status":200,"body":{"body":{"contentType":"text","content":"first"}}},
+			{"id":"0","status":200,"body":{"body":{"contentType":"text","content":"first"},
+				"attachments":[{"@odata.type":"#microsoft.graph.itemAttachment","id":"x","name":"Fwd","size":10}]}},
 			{"id":"1","status":429,"body":{"error":{"code":"TooManyRequests"}}}]}`))
 	})
 	got, err := c.MessageBodies(context.Background(), []string{"a", "b", "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got["a"].Content != "first" || got["c"].Content != "third" {
+	if len(got) != 2 || got["a"].Body.Content != "first" || got["c"].Body.Content != "third" {
 		t.Errorf("bodies = %+v", got)
+	}
+	if a := got["a"].Attachments; len(a) != 1 || a[0].Kind() != KindItem || got["c"].Attachments != nil {
+		t.Errorf("attachments = %+v / %+v", a, got["c"].Attachments)
 	}
 	if _, err := c.MessageBodies(context.Background(), make([]string, MaxBatch+1)); err == nil {
 		t.Error("oversized batch accepted")

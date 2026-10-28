@@ -127,6 +127,9 @@ func (m *Model) previewContent(w int) string {
 	field("Date", msg.ReceivedAt.Local().Format("Mon, 02 Jan 2006 15:04"))
 	b.WriteString(ansi.Wrap(styleHeader.Render("Subject:")+" "+styleBold.Render(clean(msg.Subject)), w, ""))
 	b.WriteString("\n")
+	if line := m.attachedLine(); line != "" {
+		field("Attached", line+styleFaint.Render("  (V open, s save)"))
+	}
 	b.WriteString(styleFaint.Render(strings.Repeat("─", w)))
 	b.WriteString("\n")
 
@@ -172,6 +175,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, padLines(m.helpLines(), m.width, g.bodyH)...)
 	case m.picker != nil:
 		lines = append(lines, m.pickerLines(m.width, g.bodyH)...)
+	case m.viewer != nil:
+		lines = append(lines, padLines(strings.Split(m.viewer.vp.View(), "\n"), m.width, g.bodyH)...)
 	case m.composing != nil:
 		lines = append(lines, m.composeLines(m.width, g.bodyH)...)
 	case m.reading:
@@ -439,10 +444,12 @@ func (m *Model) bottomBar() string {
 		hints = "any key: close help"
 	case m.picker != nil:
 		hints = "type to filter  ↑/↓ choose  enter select  esc cancel"
+	case m.viewer != nil:
+		hints = "j/k scroll  space/- page  s save  o open in its app  q back"
 	case m.composing != nil:
-		hints = "y send  d save to Drafts  e edit again  q discard"
+		hints = "y send  d save to Drafts  e edit again  a attach a file  q discard"
 	case m.reading:
-		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
+		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  V attachments  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
 	case m.focus == paneFolders:
@@ -497,7 +504,10 @@ func (m *Model) helpLines() []string {
 		"    r / R             reply / reply to all",
 		"    F                 forward",
 		"    e                 edit a draft (in Drafts)",
-		"    s                 save attachments (to ui.save_dir)",
+		"    V                 open an attachment: text, PDFs (with pdftotext), attached",
+		"                      emails and images show here; others open in their app,",
+		"                      or are saved when there's no desktop (over SSH)",
+		"    s                 save attachments (to ui.save_dir; attached emails as .eml)",
 		"    z                 show/hide quoted replies and signature",
 		"    O                 pick a link to open in the browser",
 		"    o                 open the message in the browser (remote images blocked)",
@@ -520,7 +530,8 @@ func (m *Model) helpLines() []string {
 		"",
 		"  Writing  (opens $EDITOR; headers on top, a blank line, then the message)",
 		"    Attach: ~/file.pdf   one line per file; delete an Attached: line to drop it",
-		"    after the editor: y send, d save to Drafts, e edit again, q discard",
+		"    after the editor: y send, d save to Drafts, e edit again, a attach a file",
+		"                      (newest first; type to filter), q discard",
 		"",
 		"  Reading a message",
 		"    j/k               scroll",

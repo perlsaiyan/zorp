@@ -308,6 +308,7 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 			d.log.Warn("pruning old search results", "err", err)
 		}
 		mailsync.PruneImageCache(d.imageDir(), time.Now())
+		mailsync.PruneImageCache(d.openDir(), time.Now())
 	}
 
 	d.mu.Lock()
@@ -439,6 +440,8 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return d.getDraft(ctx, params)
 	case ipc.MethodAttachList:
 		return d.listAttachments(ctx, params)
+	case ipc.MethodOpenAttach:
+		return d.openAttachment(ctx, params)
 	case ipc.MethodSaveAttach:
 		return d.saveAttachment(ctx, params)
 	case ipc.MethodImages:

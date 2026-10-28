@@ -10,29 +10,90 @@ import (
 
 	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 type (
 	attachmentsMsg struct {
 		graphID string
 		atts    []ipc.AttachmentInfo
+		open    bool // the open picker (V), not the save picker (s)
 		err     error
+	}
+	// cachedAttsMsg is a message's attachment list, fetched into the cache
+	// because the body was cached before attachment lists were.
+	cachedAttsMsg struct {
+		seq  int
+		atts []store.Attachment
 	}
 	savedMsg struct {
 		paths []string
+		why   string // shown after the path
 		err   error
 	}
 )
 
-// listAttachmentsCmd asks the daemon for the current message's attachments
-// (they aren't cached), then opens the save picker.
-func (m *Model) listAttachmentsCmd() tea.Cmd {
+// fetchAttsCmd has the daemon fetch (and cache) the current message's
+// attachment list, for the preview header.
+func (m *Model) fetchAttsCmd() tea.Cmd {
+	msg, ok := m.currentMessage()
+	if !ok || !msg.HasAttachments || m.attsKnown {
+		return nil
+	}
+	m.attsKnown = true // asked; don't ask again for this selection
+	cfg, st, seq := m.cfg, m.st, m.bodySeq
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := callDaemon(ctx, cfg, ipc.MethodAttachList, ipc.MessageRef{GraphID: msg.GraphID}, nil); err != nil {
+			return nil // the header just goes without; s and V still work
+		}
+		atts, _, err := st.Attachments(ctx, msg.ID)
+		if err != nil {
+			return nil
+		}
+		return cachedAttsMsg{seq: seq, atts: atts}
+	}
+}
+
+// attachedLine lists the current message's attachments for the preview
+// header; inline images are left out (they're in the body).
+func (m *Model) attachedLine() string {
+	var parts []string
+	for _, a := range m.atts {
+		if a.IsInline {
+			continue
+		}
+		what := humanSize(a.Size)
+		switch a.Kind {
+		case "item":
+			what = "email"
+		case "reference":
+			what = "link"
+		}
+		parts = append(parts, clean(a.Name)+" ("+what+")")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// listAttachmentsCmd opens the attachment picker: for saving (s) or
+// opening (V). The cached list is used when there is one; drafts change,
+// so theirs is always asked for.
+func (m *Model) listAttachmentsCmd(open bool) tea.Cmd {
 	msg, ok := m.currentMessage()
 	if !ok {
 		return nil
 	}
-	if !msg.HasAttachments {
+	if !msg.HasAttachments && !(open && len(m.atts) > 0) {
 		m.errText = errNoAttachments.Error()
+		return nil
+	}
+	if m.attsKnown && len(m.atts) > 0 && msg.ID == m.bodyID && !m.isDraft(msg) {
+		atts := make([]ipc.AttachmentInfo, 0, len(m.atts))
+		for _, a := range m.atts {
+			atts = append(atts, ipc.AttachmentInfo{ID: a.GraphID, Name: a.Name, ContentType: a.ContentType, Size: int(a.Size), IsInline: a.IsInline, Kind: a.Kind})
+		}
+		m.openAttachmentPicker(attachmentsMsg{graphID: msg.GraphID, atts: atts, open: open})
 		return nil
 	}
 	cfg := m.cfg
@@ -42,7 +103,7 @@ func (m *Model) listAttachmentsCmd() tea.Cmd {
 		defer cancel()
 		var atts []ipc.AttachmentInfo
 		err := callDaemon(ctx, cfg, ipc.MethodAttachList, ipc.MessageRef{GraphID: msg.GraphID}, &atts)
-		return attachmentsMsg{graphID: msg.GraphID, atts: atts, err: err}
+		return attachmentsMsg{graphID: msg.GraphID, atts: atts, open: open, err: err}
 	}
 }
 
@@ -57,19 +118,32 @@ func (m *Model) openAttachmentPicker(r attachmentsMsg) {
 		return
 	}
 	p := &picker{kind: pickAttach, title: "Save to " + m.cfg.UI.SaveDir, graphID: r.graphID}
-	if len(r.atts) > 1 {
+	if r.open {
+		p.kind, p.title = pickOpen, "Open attachment"
+	} else if len(r.atts) > 1 {
 		var ids []string
 		for _, a := range r.atts {
 			ids = append(ids, a.ID)
 		}
 		p.all = append(p.all, choice{label: "All attachments", detail: humanSize(totalSize(r.atts)), attIDs: ids})
 	}
-	for _, a := range r.atts {
-		detail := humanSize(int64(a.Size))
-		if a.IsInline {
-			detail += ", inline image"
+	// Inline images go last: they're already in the message.
+	for _, inline := range []bool{false, true} {
+		for _, a := range r.atts {
+			if a.IsInline != inline {
+				continue
+			}
+			detail := humanSize(int64(a.Size))
+			switch {
+			case a.Kind == "item":
+				detail = "attached email, " + detail
+			case a.Kind == "reference":
+				detail = "link to a cloud file"
+			case a.IsInline:
+				detail += ", inline image"
+			}
+			p.all = append(p.all, choice{label: clean(a.Name), detail: detail, attIDs: []string{a.ID}, att: a})
 		}
-		p.all = append(p.all, choice{label: clean(a.Name), detail: detail, attIDs: []string{a.ID}})
 	}
 	m.picker = p
 	m.filterPicker()
@@ -109,6 +183,9 @@ func (m *Model) saved(r savedMsg) {
 	case 0:
 	case 1:
 		m.notice = "Saved " + clean(r.paths[0])
+		if r.why != "" {
+			m.notice += " (" + r.why + ")"
+		}
 	default:
 		m.notice = "Saved " + strconv.Itoa(len(r.paths)) + " files to " + clean(strings.TrimSuffix(config.ExpandHome(m.cfg.UI.SaveDir), "/"))
 	}

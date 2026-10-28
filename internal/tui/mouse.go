@@ -79,6 +79,16 @@ func (m *Model) hitDivider(x, y int) divider {
 
 func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	mouse := msg.Mouse()
+	if m.viewer != nil {
+		if _, ok := msg.(tea.MouseWheelMsg); ok {
+			if mouse.Button == tea.MouseWheelUp {
+				m.viewer.vp.ScrollUp(3)
+			} else if mouse.Button == tea.MouseWheelDown {
+				m.viewer.vp.ScrollDown(3)
+			}
+		}
+		return nil
+	}
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		if mouse.Button != tea.MouseLeft {

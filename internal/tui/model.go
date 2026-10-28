@@ -61,6 +61,8 @@ type Model struct {
 	showQuoted bool        // reveal folded quotes/signature (z)
 	bodyState  bodyState
 	bodyErr    string
+	atts       []store.Attachment // bodyID's cached attachment list
+	attsKnown  bool               // atts was cached (or has been asked for)
 	preview    viewport.Model
 
 	focus       pane
@@ -80,6 +82,7 @@ type Model struct {
 	search     *search          // active search, whose results are listed
 	searchSeq  int              // bumps per search, to drop stale results
 	composing  *composing       // message being written (review screen)
+	viewer     *viewer          // attachment shown full screen
 	gfx        gfxState         // inline images (Kitty graphics)
 
 	daemonUp bool
@@ -175,6 +178,7 @@ func (m *Model) selectMessage() tea.Cmd {
 		return nil
 	}
 	m.bodyID, m.bodyState, m.doc, m.bodyErr = msg.ID, bodyLoading, nil, ""
+	m.atts, m.attsKnown = nil, false
 	m.showQuoted = isForward(msg.Subject)
 	m.refreshPreview(true)
 	return readBodyCmd(m.st, m.bodySeq, msg.ID)
@@ -230,6 +234,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.refreshPreview(false)
+		if m.viewer != nil {
+			m.layoutViewer()
+		}
 		return m, m.maybeLoadImages()
 
 	case tea.KeyPressMsg:
@@ -269,6 +276,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.openAttachmentPicker(msg)
 		return m, nil
 
+	case cachedAttsMsg:
+		if msg.seq == m.bodySeq {
+			m.atts = msg.atts
+			m.refreshPreview(false)
+		}
+		return m, nil
+
+	case openedMsg:
+		return m, m.opened(msg)
+
+	case filesMsg:
+		m.openFilePicker(msg)
+		return m, nil
+
 	case savedMsg:
 		m.saved(msg)
 		return m, nil
@@ -305,8 +326,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.bodyState, m.bodyErr = bodyFailed, msg.err.Error()
 		case msg.fetched:
 			m.bodyState, m.doc = bodyReady, parseBody(msg.body)
+			m.atts, m.attsKnown = msg.atts, msg.attsKnown
 			m.refreshPreview(true)
-			return m, m.maybeLoadImages()
+			return m, tea.Batch(m.maybeLoadImages(), m.fetchAttsCmd())
 		default:
 			// Not cached yet: ask the daemon, once the cursor settles.
 			seq := msg.seq
@@ -429,6 +451,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	if m.picker != nil {
 		return m.pickerKey(key)
 	}
+	if m.viewer != nil {
+		return m.viewerKey(key)
+	}
 	if m.composing != nil {
 		return m.composeKey(key)
 	}
@@ -511,7 +536,7 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	case paneFolders:
 		return m.folderKey(key)
 	case panePreview:
-		m.scrollKey(key)
+		scrollViewport(&m.preview, key)
 		return nil
 	}
 	return m.listKey(key)
@@ -594,29 +619,29 @@ func (m *Model) readerKey(key string) tea.Cmd {
 	case "?":
 		m.help = true
 	default:
-		m.scrollKey(key)
+		scrollViewport(&m.preview, key)
 	}
 	return nil
 }
 
-func (m *Model) scrollKey(key string) {
+func scrollViewport(vp *viewport.Model, key string) {
 	switch key {
 	case "j", "down":
-		m.preview.ScrollDown(1)
+		vp.ScrollDown(1)
 	case "k", "up":
-		m.preview.ScrollUp(1)
+		vp.ScrollUp(1)
 	case "space", "pgdown", "ctrl+f":
-		m.preview.PageDown()
+		vp.PageDown()
 	case "-", "pgup", "ctrl+b":
-		m.preview.PageUp()
+		vp.PageUp()
 	case "ctrl+d":
-		m.preview.HalfPageDown()
+		vp.HalfPageDown()
 	case "ctrl+u":
-		m.preview.HalfPageUp()
+		vp.HalfPageUp()
 	case "home":
-		m.preview.GotoTop()
+		vp.GotoTop()
 	case "end", "G":
-		m.preview.GotoBottom()
+		vp.GotoBottom()
 	}
 }
 
@@ -675,7 +700,9 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 	case "e":
 		return m.startCompose(compose.EditDraft), true
 	case "s":
-		return m.listAttachmentsCmd(), true
+		return m.listAttachmentsCmd(false), true
+	case "V":
+		return m.listAttachmentsCmd(true), true
 	}
 	return nil, false
 }

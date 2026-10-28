@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"regexp"
 	"strings"
 
 	"github.com/perlsaiyan/zorp/internal/markdown"
@@ -366,4 +367,51 @@ func prefixesFor(prefix string) []string {
 		return []string{"re:"}
 	}
 	return []string{"fw:", "fwd:"}
+}
+
+// AddAttach adds an "Attach: path" header to a compose file, filling in an
+// empty Attach: line if there is one.
+func AddAttach(text, path string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	head, body, found := strings.Cut(text, "\n\n")
+	line := "Attach: " + oneLine(path)
+	lines := strings.Split(head, "\n")
+	placed := false
+	for i, l := range lines {
+		if key, value, ok := strings.Cut(l, ":"); ok && strings.EqualFold(strings.TrimSpace(key), "attach") && strings.TrimSpace(value) == "" {
+			lines[i], placed = line, true
+			break
+		}
+	}
+	if !placed {
+		lines = append(lines, line)
+	}
+	head = strings.Join(lines, "\n")
+	if !found {
+		return head + "\n\n"
+	}
+	return head + "\n\n" + body
+}
+
+// OwnText is the part of a message body the user wrote: above the
+// reference marker, the signature, and any quoted or forwarded original.
+func OwnText(body string) string {
+	mine, _ := markdown.SplitRef(body)
+	lines := strings.Split(mine, "\n")
+	for i, l := range lines {
+		t := strings.TrimSpace(l)
+		if l == "-- " || strings.HasPrefix(t, ">") || strings.HasPrefix(t, "---------- Forwarded message") ||
+			(strings.HasPrefix(t, "On ") && strings.HasSuffix(t, " wrote:")) {
+			return strings.Join(lines[:i], "\n")
+		}
+	}
+	return mine
+}
+
+var attachWords = regexp.MustCompile(`(?i)\b(attach(ed|ing|ment|ments)?|enclosed)\b`)
+
+// MentionsAttachment reports whether the user's own text talks about an
+// attachment ("see attached"), to catch a forgotten one.
+func MentionsAttachment(body string) bool {
+	return attachWords.MatchString(OwnText(body))
 }

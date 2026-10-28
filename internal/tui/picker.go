@@ -20,6 +20,8 @@ const (
 	pickMove pickerKind = iota
 	pickLink
 	pickAttach
+	pickOpen
+	pickFile
 )
 
 // choice is one row in a picker.
@@ -30,6 +32,8 @@ type choice struct {
 	folderID int64
 	url      string
 	attIDs   []string
+	att      ipc.AttachmentInfo
+	path     string
 }
 
 // picker is a type-to-filter chooser, used for "move to folder" and
@@ -81,11 +85,11 @@ func (m *Model) openLinkPicker() {
 }
 
 // filterPicker keeps choices whose label or detail contains the query's
-// letters in order (a simple fuzzy match).
+// letters in order (a simple fuzzy match; spaces are ignored).
 func (m *Model) filterPicker() {
 	p := m.picker
 	p.matches = p.matches[:0]
-	q := strings.ToLower(p.query)
+	q := strings.ReplaceAll(strings.ToLower(p.query), " ", "")
 	for _, c := range p.all {
 		if fuzzyMatch(strings.ToLower(c.label+" "+c.detail), q) {
 			p.matches = append(p.matches, c)
@@ -120,8 +124,18 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 			case pickAttach:
 				m.notice = "Saving…"
 				return saveAttachmentsCmd(m.cfg, p.graphID, c.attIDs)
+			case pickOpen:
+				return m.openAttachmentCmd(p.graphID, c.att)
+			case pickFile:
+				return m.attachFile(c.path)
 			}
 			return mutateCmd(m.cfg, ipc.MutateParams{Op: ipc.OpMove, GraphIDs: []string{p.graphID}, FolderID: c.folderID})
+		}
+	case "ctrl+s":
+		if p.kind == pickOpen && p.cursor < len(p.matches) {
+			m.picker = nil
+			m.notice = "Saving…"
+			return saveAttachmentsCmd(m.cfg, p.graphID, p.matches[p.cursor].attIDs)
 		}
 	case "up", "ctrl+p", "ctrl+k":
 		p.cursor = clamp(p.cursor-1, 0, len(p.matches)-1)
@@ -147,7 +161,7 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 
 func (m *Model) pickerLines(w, h int) []string {
 	p := m.picker
-	action := map[pickerKind]string{pickMove: "move", pickLink: "open", pickAttach: "save"}[p.kind]
+	action := map[pickerKind]string{pickMove: "move", pickLink: "open", pickAttach: "save", pickOpen: "open · ctrl+s save", pickFile: "attach"}[p.kind]
 	lines := []string{
 		"",
 		styleBold.Render("  "+p.title+": ") + clean(p.query) + "█",

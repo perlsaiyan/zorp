@@ -190,3 +190,30 @@ func TestSetFolderSync(t *testing.T) {
 		t.Errorf("unknown folder: %v", err)
 	}
 }
+
+func TestAttachmentsCache(t *testing.T) {
+	s, _, acct, inbox, _ := setup(t)
+	ctx := context.Background()
+	if err := s.ApplyDelta(ctx, acct, inbox.ID, DeltaBatch{Upserts: []Message{msg("m1", "hello", time.Now())}}); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := s.MessageByGraphID(ctx, acct, "m1")
+	if atts, known, err := s.Attachments(ctx, m.ID); err != nil || known || len(atts) != 0 {
+		t.Fatalf("before: %v %v %v", atts, known, err)
+	}
+	set := func(as ...Attachment) {
+		t.Helper()
+		if err := s.SetAttachments(ctx, acct, "m1", as); err != nil {
+			t.Fatal(err)
+		}
+	}
+	set(Attachment{GraphID: "a", Name: "b.pdf", Kind: "file", Size: 9}, Attachment{GraphID: "c", Name: "Fwd", Kind: "item"})
+	set(Attachment{GraphID: "c", Name: "Fwd", Kind: "item"}) // replaces the list
+	atts, known, err := s.Attachments(ctx, m.ID)
+	if err != nil || !known || len(atts) != 1 || atts[0].Kind != "item" {
+		t.Errorf("after: %+v %v %v", atts, known, err)
+	}
+	if err := s.SetAttachments(ctx, acct, "gone", nil); err != nil {
+		t.Errorf("uncached message: %v", err)
+	}
+}

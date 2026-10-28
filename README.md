@@ -69,7 +69,8 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `r` / `R` | reply / reply to all |
 | `F` | forward |
 | `e` | edit a draft (in Drafts) |
-| `s` | save attachments (to `~/Downloads`; `ui.save_dir`) |
+| `V` | open an attachment (see [Attachments](#attachments)) |
+| `s` | save attachments (to `~/Downloads`; `ui.save_dir`; attached emails as `.eml`) |
 | `z` | show/hide quoted replies and signature |
 | `O` | pick a link and open it in the browser |
 | `o` | open the message in the browser (inline images shown; remote images and scripts blocked) |
@@ -85,6 +86,16 @@ Mail is shown as text: links become numbered footnotes (security-gateway rewrite
 Opening a message (`Enter`) marks it read. Changes show up immediately and are sent to Microsoft in the background; the top bar shows how many are still pending. If Microsoft rejects one, it's undone and the reason appears at the bottom.
 
 Message list markers: `N` unread, `*` flagged, `!` high importance, `+` attachments. Folders that aren't synced are dimmed; add them to `sync.folders` to cache their mail.
+
+### Attachments
+
+The preview header lists a message's attachments (`Attached:`), leaving out the images shown in the text. `V` picks one to open:
+
+- Text files (code, CSV, logs), HTML, Markdown and attached emails are shown full screen in zorp, made safe to display. PDFs are shown as text when `pdftotext` (poppler-utils) is installed.
+- Images are shown full screen in a terminal with Kitty graphics (see below).
+- Anything else opens in the desktop's default app (`xdg-open`). Over SSH, where there's no desktop, it's saved to `ui.save_dir` instead.
+
+In the viewer, `s` saves the attachment and `o` opens it in its app. In the picker, `Ctrl+S` saves instead of opening. Copies made for viewing are kept for a week in `~/.local/share/zorp/open`, readable only by you.
 
 ### Images
 
@@ -131,14 +142,15 @@ On Mon, 26 Oct 2026 at 09:00, Alice Example <alice@example.com> wrote:
 ```
 
 - Headers on top, then a blank line, then the message. Separate addresses with commas or semicolons.
-- Add one `Attach:` line per file (up to 150 MB each). Forwards and drafts list their existing attachments as `Attached:` lines; delete a line to drop that attachment.
+- Add one `Attach:` line per file (up to 150 MB each), or press `a` on the review screen to pick files under your home folder, newest first (type to filter). Forwards and drafts list their existing attachments as `Attached:` lines; delete a line to drop that attachment.
+- In Markdown, `![diagram](~/pics/diagram.png)` puts an image in the message itself (PNG, JPEG or GIF, up to 10 MB, given by full path or `~/`). zorp checks that the file really is an image, so quoted text from someone else can't attach other files.
 - Replies go to the sender's Reply-To address when it has one. Reply-all copies everyone else and leaves you out.
 - Messages are written in **Markdown** and sent formatted (HTML): `**bold**`, lists, tables, `code`, links, headings, `> quotes`. Line breaks are kept as you type them. Raw HTML in the text is dropped. Put `Format: text` in the headers (or set `compose.format = "text"`) to send plain text instead.
 - In a Markdown reply or forward, the quoted original below the `<!-- zorp: … -->` line is there to read while you write. It isn't sent; Outlook's formatted copy of the original goes under your message instead, the way Outlook itself replies. Delete that line to send the text below it as written, for example to answer inline between quoted lines.
 - Drafts saved from zorp reopen (`e`) exactly as you wrote them. A draft written or changed elsewhere opens as plain text and loses its formatting.
 - Replies and forwards thread with the original in Outlook.
 
-When you quit the editor, zorp shows the message for review, formatted as the recipient will see it. Press `y` to send, `d` to save to Drafts, `e` to edit again, or `q` to discard. Quitting the editor without changes discards a new message.
+When you quit the editor, zorp shows the message for review, formatted as the recipient will see it. It warns when the attachments come to more than 25 MB, or when your text mentions an attachment ("see attached") but nothing is attached. Press `y` to send, `d` to save to Drafts, `e` to edit again, `a` to attach a file, or `q` to discard. Quitting the editor without changes discards a new message.
 
 If sending fails partway, the message is kept in Drafts. Open it there with `e` to try again.
 

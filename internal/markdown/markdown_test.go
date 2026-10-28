@@ -57,3 +57,20 @@ func TestSplitRef(t *testing.T) {
 		t.Errorf("no marker: %q %v", mine, ok)
 	}
 }
+
+func TestLocalImages(t *testing.T) {
+	src := "![a](~/pics/a.png) ![b](https://example.com/b.png) ![c](/tmp/c.gif)\n\n![d](cid:x) ![e](<~/my pics/e.jpg>)\n"
+	got := LocalImages(src)
+	if strings.Join(got, "|") != "~/pics/a.png|/tmp/c.gif|~/my pics/e.jpg" {
+		t.Errorf("LocalImages = %q", got)
+	}
+	html := ToHTMLImages(src, func(p string) string {
+		if p == "~/pics/a.png" {
+			return "cid:img1@zorp"
+		}
+		return ""
+	})
+	if !strings.Contains(html, `src="cid:img1@zorp"`) || !strings.Contains(html, `src="https://example.com/b.png"`) || !strings.Contains(html, "max-width") {
+		t.Errorf("html = %s", html)
+	}
+}

@@ -223,4 +223,10 @@ ALTER TABLE messages ADD COLUMN searched_at INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE messages ADD COLUMN reply_to_json TEXT NOT NULL DEFAULT '[]';
 UPDATE folders SET delta_link = '';
 `,
+	// 6: attachment lists are cached (fetched with the body, or when
+	// listed), with their kind: file, item (an attached email) or reference.
+	`
+ALTER TABLE messages ADD COLUMN attachments_fetched INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE attachments ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
+`,
 }

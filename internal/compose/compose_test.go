@@ -167,3 +167,38 @@ func TestMarkdownTemplates(t *testing.T) {
 		t.Error("bad format accepted")
 	}
 }
+
+func TestAddAttach(t *testing.T) {
+	file := File(New, Message{Body: "hi\n"}, nil)
+	once := AddAttach(file, "~/a.pdf")
+	twice := AddAttach(once, "/tmp/b c.png")
+	m, err := Parse(twice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(m.Attach, "|") != "~/a.pdf|/tmp/b c.png" || m.Body != "hi\n" {
+		t.Errorf("attach %q, body %q", m.Attach, m.Body)
+	}
+	if strings.Count(twice, "\nAttach:") != 2 {
+		t.Errorf("file:\n%s", twice)
+	}
+}
+
+func TestMentionsAttachment(t *testing.T) {
+	orig := Original{Message: store.Message{Subject: "Report", From: store.Address{Addr: "a@example.com"}}, Text: "Report attached.\n"}
+	for _, format := range []string{FormatText, FormatMarkdown} {
+		reply := ReplyTo(orig, false, nil, "", format)
+		if MentionsAttachment(reply.Body) {
+			t.Errorf("%s: the quoted original counted", format)
+		}
+		if !MentionsAttachment("Here's the deck, see attachment.\n" + reply.Body) {
+			t.Errorf("%s: own text not seen", format)
+		}
+		if MentionsAttachment(ForwardOf(orig, "", format).Body) {
+			t.Errorf("%s: the forwarded original counted", format)
+		}
+	}
+	if MentionsAttachment("Thanks!\n\n-- \nAttachments are scanned for viruses\n") {
+		t.Error("signature counted")
+	}
+}

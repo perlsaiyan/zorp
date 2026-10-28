@@ -8,8 +8,10 @@ import (
 	"strings"
 
 	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -42,13 +44,29 @@ var styles = map[atom.Atom]string{
 	atom.Td:         "border: 1px solid #c8c8c8; padding: 0.25em 0.6em;",
 	atom.Hr:         "border: none; border-top: 1px solid #c8c8c8; margin: 1em 0;",
 	atom.A:          "color: #0563c1;",
+	atom.Img:        "max-width: 100%;",
 }
 
 // ToHTML renders src as an HTML fragment (a styled <div>), ready to be the
 // body of a message or to be put above a reply's quoted history.
-func ToHTML(src string) string {
+func ToHTML(src string) string { return ToHTMLImages(src, nil) }
+
+// ToHTMLImages is ToHTML with local images' sources replaced: image is
+// called with each local image's path as written (see LocalImages) and
+// returns the src to use instead, such as "cid:…", or "" to leave it.
+func ToHTMLImages(src string, image func(path string) string) string {
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(src), &buf); err != nil {
+	doc := md.Parser().Parse(text.NewReader([]byte(src)))
+	if image != nil {
+		for _, img := range images(doc) {
+			if dest := string(img.Destination); IsLocal(dest) {
+				if s := image(dest); s != "" {
+					img.Destination = []byte(s)
+				}
+			}
+		}
+	}
+	if err := md.Renderer().Render(&buf, []byte(src), doc); err != nil {
 		// goldmark only fails on writer errors, which a bytes.Buffer
 		// doesn't have; fall back to escaped text anyway.
 		return `<div style="` + bodyStyle + `">` + html.EscapeString(src) + `</div>`
@@ -87,6 +105,41 @@ func inlineStyles(fragment string) string {
 		}
 	}
 	return out.String()
+}
+
+// LocalImages lists the images in src that refer to local files, as
+// written: ![alt](~/pics/x.png).
+func LocalImages(src string) []string {
+	var out []string
+	for _, img := range images(md.Parser().Parse(text.NewReader([]byte(src)))) {
+		if dest := string(img.Destination); IsLocal(dest) {
+			out = append(out, dest)
+		}
+	}
+	return out
+}
+
+func images(doc ast.Node) []*ast.Image {
+	var out []*ast.Image
+	ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if img, ok := n.(*ast.Image); ok && entering {
+			out = append(out, img)
+		}
+		return ast.WalkContinue, nil
+	})
+	return out
+}
+
+// IsLocal reports whether an image destination is a file path rather than
+// a URL (http:, cid:, data: and the like).
+func IsLocal(dest string) bool {
+	if dest == "" {
+		return false
+	}
+	if i := strings.Index(dest, ":"); i > 1 && !strings.ContainsAny(dest[:i], "/\\.~ ") {
+		return false // has a scheme
+	}
+	return true
 }
 
 func setStyle(n *html.Node, st string) {

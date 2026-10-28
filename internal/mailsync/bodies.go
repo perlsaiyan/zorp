@@ -17,11 +17,30 @@ func (e *Engine) FetchBody(ctx context.Context, graphID string) error {
 	if err != nil {
 		return err
 	}
-	body, err := e.graph.MessageBody(ctx, graphID)
+	c, err := e.graph.MessageBody(ctx, graphID)
 	if err != nil {
 		return err
 	}
-	return e.store.SetBody(ctx, accountID, graphID, toStoreBody(*body))
+	return e.storeContent(ctx, accountID, graphID, *c)
+}
+
+// storeContent caches a message's body and attachment list.
+func (e *Engine) storeContent(ctx context.Context, accountID int64, graphID string, c graph.MessageContent) error {
+	if err := e.store.SetBody(ctx, accountID, graphID, toStoreBody(c.Body)); err != nil {
+		return err
+	}
+	return e.store.SetAttachments(ctx, accountID, graphID, toStoreAttachments(c.Attachments))
+}
+
+func toStoreAttachments(as []graph.Attachment) []store.Attachment {
+	out := make([]store.Attachment, 0, len(as))
+	for _, a := range as {
+		out = append(out, store.Attachment{
+			GraphID: a.ID, Name: a.Name, ContentType: a.ContentType, Kind: a.Kind(),
+			Size: int64(a.Size), IsInline: a.IsInline,
+		})
+	}
+	return out
 }
 
 // toStoreBody keeps HTML as sent, plus a plain-text rendering for search.
@@ -54,8 +73,8 @@ func (e *Engine) PrefetchBodies(ctx context.Context, window int) (int, error) {
 		if err != nil {
 			return stored, err
 		}
-		for gid, b := range bodies {
-			if err := e.store.SetBody(ctx, accountID, gid, toStoreBody(b)); err != nil {
+		for gid, c := range bodies {
+			if err := e.storeContent(ctx, accountID, gid, c); err != nil {
 				return stored, err
 			}
 			stored++

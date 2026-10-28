@@ -130,24 +130,40 @@ const (
 
 // AddAttachment attaches a file to a draft.
 func (c *Client) AddAttachment(ctx context.Context, messageID, name, contentType string, data []byte) error {
+	return c.addAttachment(ctx, messageID, name, contentType, "", data)
+}
+
+// AddInlineAttachment attaches an image that the draft's HTML shows with
+// <img src="cid:contentID">.
+func (c *Client) AddInlineAttachment(ctx context.Context, messageID, name, contentType, contentID string, data []byte) error {
+	return c.addAttachment(ctx, messageID, name, contentType, contentID, data)
+}
+
+func (c *Client) addAttachment(ctx context.Context, messageID, name, contentType, contentID string, data []byte) error {
 	if len(data) > MaxAttachment {
 		return fmt.Errorf("%s is larger than 150 MB", name)
 	}
 	base := "/me/messages/" + url.PathEscape(messageID) + "/attachments"
 	if len(data) <= smallAttachment {
-		return c.postOnce(ctx, base, map[string]any{
+		att := map[string]any{
 			"@odata.type":  "#microsoft.graph.fileAttachment",
 			"name":         name,
 			"contentType":  contentType,
 			"contentBytes": base64.StdEncoding.EncodeToString(data),
-		}, nil)
+		}
+		if contentID != "" {
+			att["isInline"], att["contentId"] = true, contentID
+		}
+		return c.postOnce(ctx, base, att, nil)
 	}
 	var session struct {
 		UploadURL string `json:"uploadUrl"`
 	}
-	err := c.postOnce(ctx, base+"/createUploadSession", map[string]any{
-		"AttachmentItem": map[string]any{"attachmentType": "file", "name": name, "size": len(data), "contentType": contentType},
-	}, &session)
+	item := map[string]any{"attachmentType": "file", "name": name, "size": len(data), "contentType": contentType}
+	if contentID != "" {
+		item["isInline"], item["contentId"] = true, contentID
+	}
+	err := c.postOnce(ctx, base+"/createUploadSession", map[string]any{"AttachmentItem": item}, &session)
 	if err != nil {
 		return err
 	}

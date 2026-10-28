@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	pngenc "image/png"
 	"io"
 	"log/slog"
 	"net/http"
@@ -54,8 +56,19 @@ func newComposeEngine(t *testing.T, cg *composeGraph) *Engine {
 				"id": "draft1", "changeKey": cg.changeKey, "isDraft": true, "subject": "Re: x",
 				"body": map[string]string{"contentType": "html", "content": `<html><body><div id="divRplyFwdMsg">From: Alice</div><p>original <b>formatted</b></p></body></html>`},
 			})
-		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments/att1":
-			io.WriteString(w, `{"id":"att1","name":"../../etc/passwd","contentBytes":"aGVsbG8="}`)
+		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments":
+			io.WriteString(w, `{"value":[
+				{"@odata.type":"#microsoft.graph.fileAttachment","id":"att1","name":"../../etc/passwd","size":5},
+				{"@odata.type":"#microsoft.graph.itemAttachment","id":"att2","name":"Lunch?","size":900},
+				{"@odata.type":"#microsoft.graph.referenceAttachment","id":"att3","name":"plan.docx"}]}`)
+		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments/att1/$value":
+			io.WriteString(w, "hello")
+		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments/att2/$value":
+			io.WriteString(w, "Subject: Lunch?\r\n\r\nNoon?\r\n")
+		case r.Method == "GET" && r.URL.Path == "/me/messages/att-msg/attachments/att2":
+			io.WriteString(w, `{"item":{"@odata.type":"#microsoft.graph.message","subject":"Lunch?",
+				"from":{"emailAddress":{"name":"Al","address":"al@example.com"}},
+				"body":{"contentType":"html","content":"<p>Noon?</p>"}}}`)
 		default:
 			w.WriteHeader(http.StatusAccepted)
 		}
@@ -158,6 +171,16 @@ func TestSaveAttachmentNeverEscapesOrOverwrites(t *testing.T) {
 		t.Errorf("paths %s, %s", p1, p2)
 	}
 	if data, _ := os.ReadFile(p1); string(data) != "hello" {
+		t.Errorf("saved %q", data)
+	}
+	eml, err := e.SaveAttachment(context.Background(), "att-msg", "att2", dir)
+	if err != nil || filepath.Base(eml) != "Lunch?.eml" {
+		t.Errorf("attached email saved as %s, %v", eml, err)
+	}
+	if _, err := e.SaveAttachment(context.Background(), "att-msg", "att3", dir); !errors.Is(err, errReference) {
+		t.Errorf("reference attachment: %v", err)
+	}
+	if data, _ := os.ReadFile(p1); string(data) != "hello" {
 		t.Errorf("content = %q", data)
 	}
 	if st, _ := os.Stat(p1); st.Mode().Perm() != 0o600 {
@@ -247,10 +270,72 @@ func TestSavedMarkdownDraftEditsAsWritten(t *testing.T) {
 	}
 
 	// A draft changed elsewhere (new changeKey) falls back to its HTML as text.
-	e.saveSidecar(context.Background(), id, compose.FormatMarkdown, source, "")
+	e.saveSidecar(context.Background(), id, sidecar{Format: compose.FormatMarkdown, Source: source})
 	cg.changeKey = "ck2"
 	d, _ = e.GetDraft(context.Background(), id)
 	if d.Format != "" || !d.WasHTML || !strings.Contains(d.Draft.Body, "original formatted") {
 		t.Errorf("stale sidecar used: %+v", d)
+	}
+}
+
+func TestOpenAttachment(t *testing.T) {
+	cg := &composeGraph{}
+	e := newComposeEngine(t, cg)
+	dir := t.TempDir()
+	f, err := e.OpenAttachment(context.Background(), "att-msg", "att1", dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(f.Path) != dir || !strings.HasSuffix(f.Path, "-passwd") || f.Kind != graph.KindFile {
+		t.Errorf("opened %+v", f)
+	}
+	if st, err := os.Stat(f.Path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("copy: %v, %v", st, err)
+	}
+	m, err := e.OpenAttachment(context.Background(), "att-msg", "att2", dir)
+	if err != nil || m.Message == nil || m.Message.Subject != "Lunch?" || m.Message.Body.Content != "<p>Noon?</p>" {
+		t.Errorf("attached email: %+v, %v", m, err)
+	}
+	if _, err := e.OpenAttachment(context.Background(), "att-msg", "nope", dir); err == nil {
+		t.Error("opened a missing attachment")
+	}
+}
+
+func TestComposeMarkdownInlineImages(t *testing.T) {
+	cg := &composeGraph{}
+	e := newComposeEngine(t, cg)
+	dir := t.TempDir()
+	png := filepath.Join(dir, "chart.png")
+	var buf strings.Builder
+	if err := pngenc.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 20, 20))); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(png, []byte(buf.String()), 0o600)
+	fake := filepath.Join(dir, "secret.png")
+	os.WriteFile(fake, []byte("-----BEGIN PRIVATE KEY-----"), 0o600)
+
+	// Anything but a real image is refused before anything is created.
+	_, err := e.Compose(context.Background(), Outgoing{Kind: compose.New, Format: compose.FormatMarkdown, Send: true,
+		Draft: graph.Draft{Subject: "s", Body: "![x](" + fake + ")\n", To: to}})
+	if err == nil || len(cg.calls) != 0 {
+		t.Fatalf("fake image: err %v, calls %v", err, cg.calls)
+	}
+
+	_, err = e.Compose(context.Background(), Outgoing{Kind: compose.New, Format: compose.FormatMarkdown, Send: true,
+		Draft: graph.Draft{Subject: "s", Body: "See:\n\n![chart](" + png + ")\n", To: to}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cg.calls, ","); got != "POST /me/messages,POST /me/messages/draft1/attachments,POST /me/messages/draft1/send" {
+		t.Errorf("calls = %s", got)
+	}
+	att := cg.bodies["POST /me/messages/draft1/attachments"]
+	cid, _ := att["contentId"].(string)
+	if att["isInline"] != true || cid == "" || att["name"] != "chart.png" || att["contentType"] != "image/png" {
+		t.Errorf("attachment = %v", att)
+	}
+	html := cg.bodies["POST /me/messages"]["body"].(map[string]any)["content"].(string)
+	if !strings.Contains(html, `src="cid:`+cid+`"`) || strings.Contains(html, png) {
+		t.Errorf("body = %s", html)
 	}
 }

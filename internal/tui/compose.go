@@ -17,6 +17,7 @@ import (
 	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/daemon"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/mailsync"
 	"github.com/perlsaiyan/zorp/internal/markdown"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
@@ -36,9 +37,15 @@ type composing struct {
 	wasHTML  bool
 
 	msg      compose.Message
-	attach   []string // msg.Attach, resolved to absolute paths
-	problems []string // reasons it can't be sent as is
-	busy     string   // "Sending…" while the daemon works
+	attach   []string      // msg.Attach, resolved to absolute paths
+	images   []inlineImage // Markdown ![](path) images, sent inline
+	problems []string      // reasons it can't be sent as is
+	busy     string        // "Sending…" while the daemon works
+}
+
+type inlineImage struct {
+	name string
+	size int64
 }
 
 // Messages for the compose flow.
@@ -220,7 +227,7 @@ func (m *Model) editorDone(err error) tea.Cmd {
 		m.notice = "Nothing written; discarded."
 		return nil
 	}
-	c.msg, c.attach, c.problems = compose.Message{}, nil, nil
+	c.msg, c.attach, c.images, c.problems = compose.Message{}, nil, nil, nil
 	msg, perr := compose.Parse(string(data))
 	c.msg = msg
 	if perr != nil {
@@ -240,6 +247,17 @@ func (m *Model) editorDone(err error) tea.Cmd {
 			c.problems = append(c.problems, "Attach: "+a+" is not a file")
 		default:
 			c.attach = append(c.attach, path)
+		}
+	}
+	if c.format(m.cfg) == compose.FormatMarkdown {
+		mine, _ := markdown.SplitRef(msg.Body)
+		for _, ref := range markdown.LocalImages(mine) {
+			data, _, err := mailsync.ReadInlineImage(ref)
+			if err != nil {
+				c.problems = append(c.problems, err.Error())
+				continue
+			}
+			c.images = append(c.images, inlineImage{filepath.Base(config.ExpandHome(ref)), int64(len(data))})
 		}
 	}
 	for _, name := range msg.Attached {
@@ -310,6 +328,9 @@ func (m *Model) composeKey(key string) tea.Cmd {
 		return m.submitCmd(false)
 	case "e":
 		return m.editCmd()
+	case "a":
+		m.notice = "Listing files…"
+		return listFilesCmd()
 	case "q", "esc":
 		m.confirm = &confirm{
 			prompt: "Discard this message? y/n",
@@ -442,12 +463,14 @@ func (m *Model) composeLines(w, h int) []string {
 	} else {
 		lines = append(lines, field("Format", "plain text"))
 	}
-	var atts []string
+	var atts, imgs []string
+	var total int64
 	for _, name := range c.msg.Attached {
 		size := ""
 		for _, a := range c.existing {
 			if strings.Join(strings.Fields(a.Name), " ") == name {
 				size = " (" + humanSize(int64(a.Size)) + ")"
+				total += int64(a.Size)
 			}
 		}
 		atts = append(atts, clean(name)+size)
@@ -456,15 +479,29 @@ func (m *Model) composeLines(w, h int) []string {
 		size := ""
 		if st, err := os.Stat(p); err == nil {
 			size = " (" + humanSize(st.Size()) + ")"
+			total += st.Size()
 		}
 		atts = append(atts, clean(filepath.Base(p))+size)
+	}
+	for _, im := range c.images {
+		imgs = append(imgs, clean(im.name)+" ("+humanSize(im.size)+")")
+		total += im.size
 	}
 	if len(atts) > 0 {
 		lines = append(lines, field("Attach", strings.Join(atts, ", ")))
 	}
+	if len(imgs) > 0 {
+		lines = append(lines, field("Images", strings.Join(imgs, ", ")+styleFaint.Render("  (shown in the message)")))
+	}
 	lines = append(lines, "")
 	for _, p := range c.problems {
 		lines = append(lines, styleError.Render(ansi.Truncate("  ✗ "+clean(p), w, "…")))
+	}
+	if total > largeMessage {
+		lines = append(lines, styleError.Render(ansi.Truncate("  ! The attachments come to "+humanSize(total)+"; many mail servers refuse messages over 25 MB.", w, "…")))
+	}
+	if len(atts) == 0 && compose.MentionsAttachment(c.msg.Body) {
+		lines = append(lines, styleError.Render(ansi.Truncate("  ! The message mentions an attachment, but nothing is attached (a attaches a file).", w, "…")))
 	}
 	var blocked []string
 	for _, list := range [][]store.Address{c.msg.To, c.msg.Cc, c.msg.Bcc} {
@@ -514,3 +551,6 @@ func humanSize(n int64) string {
 }
 
 var errNoAttachments = errors.New("this message has no attachments")
+
+// largeMessage is where the review screen warns about size.
+const largeMessage = 25 << 20

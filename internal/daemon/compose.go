@@ -126,7 +126,7 @@ func fromGraph(as []graph.EmailAddress) []ipc.Address {
 func attachmentInfo(as []graph.Attachment) []ipc.AttachmentInfo {
 	out := make([]ipc.AttachmentInfo, 0, len(as))
 	for _, a := range as {
-		out = append(out, ipc.AttachmentInfo{ID: a.ID, Name: a.Name, ContentType: a.ContentType, Size: a.Size, IsInline: a.IsInline})
+		out = append(out, ipc.AttachmentInfo{ID: a.ID, Name: a.Name, ContentType: a.ContentType, Size: a.Size, IsInline: a.IsInline, Kind: a.Kind()})
 	}
 	return out
 }
@@ -175,6 +175,47 @@ func (d *daemon) images(ctx context.Context, params json.RawMessage) ([]ipc.Imag
 }
 
 func (d *daemon) imageDir() string { return filepath.Join(d.cfg.Paths.DataDir, "images") }
+
+// openDir holds private copies of attachments being viewed.
+func (d *daemon) openDir() string { return filepath.Join(d.cfg.Paths.DataDir, "open") }
+
+func (d *daemon) openAttachment(ctx context.Context, params json.RawMessage) (ipc.OpenAttachmentResult, error) {
+	var p ipc.SaveAttachmentParams
+	if err := json.Unmarshal(params, &p); err != nil || p.GraphID == "" || p.AttachmentID == "" {
+		return ipc.OpenAttachmentResult{}, errors.New("open-attachment needs a graph_id and attachment_id")
+	}
+	a, err := d.engine.OpenAttachment(ctx, p.GraphID, p.AttachmentID, d.openDir())
+	if err != nil {
+		return ipc.OpenAttachmentResult{}, err
+	}
+	out := ipc.OpenAttachmentResult{Name: a.Name, ContentType: a.ContentType, Kind: a.Kind, Size: a.Size, Path: a.Path}
+	if m := a.Message; m != nil {
+		am := &ipc.AttachedMessage{
+			Subject:  m.Subject,
+			To:       fromGraph(recipients(m.ToRecipients)),
+			Cc:       fromGraph(recipients(m.CcRecipients)),
+			Date:     m.SentDateTime,
+			BodyType: strings.ToLower(m.Body.ContentType),
+			Body:     m.Body.Content,
+		}
+		if m.From != nil {
+			am.From = ipc.Address{Name: m.From.EmailAddress.Name, Addr: m.From.EmailAddress.Address}
+		}
+		if am.Date == "" {
+			am.Date = m.ReceivedDateTime
+		}
+		out.Message = am
+	}
+	return out, nil
+}
+
+func recipients(rs []graph.Recipient) []graph.EmailAddress {
+	out := make([]graph.EmailAddress, 0, len(rs))
+	for _, r := range rs {
+		out = append(out, r.EmailAddress)
+	}
+	return out
+}
 
 func (d *daemon) saveAttachment(ctx context.Context, params json.RawMessage) (ipc.SaveAttachmentResult, error) {
 	var p ipc.SaveAttachmentParams

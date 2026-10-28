@@ -25,6 +25,7 @@ const (
 	MethodAttachList = "attachments"
 	MethodSaveAttach = "save-attachment"
 	MethodImages     = "images"
+	MethodOpenAttach = "open-attachment"
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -165,6 +166,7 @@ type AttachmentInfo struct {
 	ContentType string `json:"content_type"`
 	Size        int    `json:"size"`
 	IsInline    bool   `json:"is_inline"`
+	Kind        string `json:"kind,omitempty"` // "file", "item" (an attached email) or "reference"
 }
 
 // DraftInfo is a draft's content, for editing as text.
@@ -194,6 +196,28 @@ type SaveAttachmentParams struct {
 
 type SaveAttachmentResult struct {
 	Path string `json:"path"`
+}
+
+// OpenAttachmentResult is an attachment fetched for viewing (params:
+// SaveAttachmentParams).
+type OpenAttachmentResult struct {
+	Name        string           `json:"name"`
+	ContentType string           `json:"content_type"`
+	Kind        string           `json:"kind"`
+	Size        int              `json:"size"`
+	Path        string           `json:"path,omitempty"`    // file attachments: a private copy
+	Message     *AttachedMessage `json:"message,omitempty"` // attached emails
+}
+
+// AttachedMessage is an email attached to another.
+type AttachedMessage struct {
+	Subject  string    `json:"subject"`
+	From     Address   `json:"from"`
+	To       []Address `json:"to,omitempty"`
+	Cc       []Address `json:"cc,omitempty"`
+	Date     string    `json:"date,omitempty"` // RFC 3339
+	BodyType string    `json:"body_type"`      // "html" or "text"
+	Body     string    `json:"body"`
 }
 
 // ErrorEvent reports a failure the user should see, e.g. a change Graph

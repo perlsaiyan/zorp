@@ -70,17 +70,23 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 
 	source := o.Draft.Body
 	mine, hasRef := source, false
+	var images []inlineImage
 	if o.Format == compose.FormatMarkdown {
 		mine, hasRef = markdown.SplitRef(source)
-		o.Draft.Body, o.Draft.HTML = markdown.ToHTML(mine), true
+		var err error
+		if images, err = inlineImages(mine); err != nil {
+			return "", err
+		}
+		o.Draft.Body, o.Draft.HTML = markdown.ToHTMLImages(mine, inlineSrc(images)), true
 	}
 	mineHTML := o.Draft.Body
 
-	if o.Kind == compose.New && o.Send && len(files) == 0 {
+	if o.Kind == compose.New && o.Send && len(files) == 0 && len(images) == 0 {
 		return "", e.graph.SendMail(ctx, o.Draft)
 	}
 
 	var id, history string
+	var dropInline []string // inline images zorp added to the draft before
 	var err error
 	switch o.Kind {
 	case compose.New:
@@ -100,9 +106,13 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 		}
 	case compose.EditDraft:
 		id = o.Ref
-		if sc := e.loadSidecar(id); hasRef && sc != nil && sc.History != "" {
+		sc := e.loadSidecar(id)
+		if hasRef && sc != nil && sc.History != "" {
 			history = sc.History
 			o.Draft.Body = markdown.Above(mineHTML, history)
+		}
+		if sc != nil {
+			dropInline = sc.Inline
 		}
 		err = e.graph.UpdateDraft(ctx, id, o.Draft)
 	default:
@@ -116,7 +126,7 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 	}
 
 	if o.Kind == compose.Forward || o.Kind == compose.EditDraft {
-		if err := e.pruneAttachments(ctx, id, o.Keep, o.Format == compose.FormatMarkdown && history != ""); err != nil {
+		if err := e.pruneAttachments(ctx, id, o.Keep, o.Format == compose.FormatMarkdown && history != "", dropInline); err != nil {
 			return id, &DraftKept{id, err}
 		}
 	}
@@ -125,12 +135,18 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 			return id, &DraftKept{id, fmt.Errorf("attaching %s: %w", f.name, err)}
 		}
 	}
+	for _, im := range images {
+		if err := e.graph.AddInlineAttachment(ctx, id, im.name, im.contentType, im.cid, im.data); err != nil {
+			return id, &DraftKept{id, fmt.Errorf("attaching image %s: %w", im.name, err)}
+		}
+	}
+	sc := sidecar{Format: o.Format, Source: source, History: history, Inline: inlineNames(images)}
 	if !o.Send {
-		e.saveSidecar(ctx, id, o.Format, source, history)
+		e.saveSidecar(ctx, id, sc)
 		return id, nil
 	}
 	if err := e.graph.SendDraft(ctx, id); err != nil {
-		e.saveSidecar(ctx, id, o.Format, source, history)
+		e.saveSidecar(ctx, id, sc)
 		return id, &DraftKept{id, err}
 	}
 	e.removeSidecar(id)
@@ -140,19 +156,25 @@ func (e *Engine) Compose(ctx context.Context, o Outgoing) (string, error) {
 // pruneAttachments removes attachments not named in keep (matched by
 // name, as many times as each name is listed). Inline attachments are
 // removed too, unless the body keeps the original's HTML (keepInline),
-// whose images refer to them.
-func (e *Engine) pruneAttachments(ctx context.Context, id string, keep []string, keepInline bool) error {
+// whose images refer to them; but those named in drop (images zorp added
+// for the message's own text, which are added again) always go.
+func (e *Engine) pruneAttachments(ctx context.Context, id string, keep []string, keepInline bool, drop []string) error {
 	atts, err := e.graph.Attachments(ctx, id)
 	if err != nil {
 		return err
 	}
-	want := map[string]int{}
+	want, mine := map[string]int{}, map[string]int{}
 	for _, k := range keep {
 		want[k]++
 	}
+	for _, d := range drop {
+		mine[d]++
+	}
 	for _, a := range atts {
 		name := strings.Join(strings.Fields(a.Name), " ") // as listed in the compose file
-		if a.IsInline && keepInline {
+		if a.IsInline && mine[a.Name] > 0 {
+			mine[a.Name]--
+		} else if a.IsInline && keepInline {
 			continue
 		}
 		if !a.IsInline && want[name] > 0 {
@@ -244,16 +266,17 @@ func emailAddrs(rs []graph.Recipient) []graph.EmailAddress {
 }
 
 // SaveAttachment downloads an attachment into dir under its own name
-// (made safe, and never overwriting a file) and returns the path.
+// (made safe, and never overwriting a file) and returns the path. An
+// attached email is saved as its MIME source (.eml).
 func (e *Engine) SaveAttachment(ctx context.Context, messageID, attachmentID, dir string) (string, error) {
-	a, err := e.graph.Attachment(ctx, messageID, attachmentID)
+	a, err := e.findAttachment(ctx, messageID, attachmentID)
 	if err != nil {
 		return "", err
 	}
-	if a.ContentB64 == "" && a.Size > 0 {
-		return "", errors.New("only file attachments can be saved (not attached emails or links)")
+	if a.Kind() == graph.KindReference {
+		return "", errReference
 	}
-	data, err := a.Content()
+	data, err := e.graph.AttachmentRaw(ctx, messageID, attachmentID)
 	if err != nil {
 		return "", err
 	}
@@ -261,6 +284,9 @@ func (e *Engine) SaveAttachment(ctx context.Context, messageID, attachmentID, di
 		return "", err
 	}
 	name := SafeFileName(a.Name)
+	if a.Kind() == graph.KindItem && !strings.EqualFold(filepath.Ext(name), ".eml") {
+		name += ".eml"
+	}
 	ext := filepath.Ext(name)
 	stem := strings.TrimSuffix(name, ext)
 	for i := 0; i < 1000; i++ {
@@ -314,7 +340,20 @@ func SafeFileName(name string) string {
 	return name
 }
 
-// Attachments lists a message's attachments (without contents).
+// Attachments lists a message's attachments (without contents), updating
+// the cached list.
 func (e *Engine) Attachments(ctx context.Context, messageID string) ([]graph.Attachment, error) {
-	return e.graph.Attachments(ctx, messageID)
+	atts, err := e.graph.Attachments(ctx, messageID)
+	if err != nil {
+		return nil, err
+	}
+	if e.store == nil {
+		return atts, nil
+	}
+	if accountID, err := e.ensureAccount(ctx); err == nil {
+		if err := e.store.SetAttachments(ctx, accountID, messageID, toStoreAttachments(atts)); err != nil {
+			e.log.Warn("caching attachment list", "err", err)
+		}
+	}
+	return atts, nil
 }

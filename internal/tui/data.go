@@ -131,18 +131,29 @@ const (
 
 // bodyMsg is the result of reading (and maybe fetching) a message body.
 type bodyMsg struct {
-	seq     int
-	id      int64
-	body    store.Body
-	fetched bool
-	err     error
+	seq       int
+	id        int64
+	body      store.Body
+	fetched   bool
+	atts      []store.Attachment
+	attsKnown bool
+	err       error
 }
 
 func readBodyCmd(st *store.Store, seq int, id int64) tea.Cmd {
 	return func() tea.Msg {
-		body, fetched, err := st.MessageBody(context.Background(), id)
-		return bodyMsg{seq: seq, id: id, body: body, fetched: fetched, err: err}
+		return readBody(context.Background(), st, seq, id)
 	}
+}
+
+// readBody reads a message's cached body and attachment list.
+func readBody(ctx context.Context, st *store.Store, seq int, id int64) bodyMsg {
+	body, fetched, err := st.MessageBody(ctx, id)
+	r := bodyMsg{seq: seq, id: id, body: body, fetched: fetched, err: err}
+	if err == nil {
+		r.atts, r.attsKnown, r.err = st.Attachments(ctx, id)
+	}
+	return r
 }
 
 // fetchDelay debounces on-demand body fetches while the cursor is moving.
@@ -162,8 +173,7 @@ func fetchBodyCmd(cfg *config.Config, st *store.Store, seq int, id int64, graphI
 		if err := c.Call(ctx, ipc.MethodFetchBody, ipc.FetchBodyParams{GraphID: graphID}, nil); err != nil {
 			return bodyMsg{seq: seq, id: id, err: err}
 		}
-		body, fetched, err := st.MessageBody(ctx, id)
-		return bodyMsg{seq: seq, id: id, body: body, fetched: fetched, err: err}
+		return readBody(ctx, st, seq, id)
 	}
 }
 
