@@ -265,7 +265,7 @@ func defaults() Config {
 			Folders:        []string{"inbox", "sentitems", "drafts", "archive"},
 			PrefetchBodies: 500,
 		},
-		Safety:  Safety{SafeMode: true, ScratchFolder: "zorp-test"},
+		Safety:  Safety{ScratchFolder: "zorp-test"},
 		Keys:    Keys{DeleteArchives: true},
 		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
 		Compose: Compose{Format: "markdown"},

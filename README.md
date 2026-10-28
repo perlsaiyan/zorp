@@ -275,7 +275,7 @@ The server opens the cache read-only. Bodies that aren't cached and server searc
 
 ## Safety guardrails
 
-zorp starts with three guardrails on. The daemon enforces them, so they cover every client, including the MCP server later:
+zorp has three guardrails, off by default. Turn them on while trying zorp out, or for a mailbox where mistakes are costly. The daemon enforces them, so they cover every client, including the MCP server:
 
 | Guardrail | When on | Setting to lift it |
 |---|---|---|
@@ -285,11 +285,11 @@ zorp starts with three guardrails on. The daemon enforces them, so they cover ev
 
 Drafts can always be saved, and read/unread and flag always work. The top bar shows the guardrails in force (`guarded: send move delete`), as does `zorp daemon status`.
 
-`safe_mode` sets the default for all three, and each `allow_*` setting overrides it:
+`safe_mode = true` turns all three on, and each `allow_*` setting overrides it:
 
 ```toml
 [safety]
-safe_mode = true                  # default; false lifts every guardrail not set below
+safe_mode = true                  # default false; true turns on every guardrail not set below
 allow_move = true                 # e.g. archive and move freely...
 allow_send = false                # ...but keep sending restricted
 send_allow = ["example.com", "friend@example.org"]   # besides yourself

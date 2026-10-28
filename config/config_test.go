@@ -19,11 +19,11 @@ func safety(t *testing.T, src string) Safety {
 
 func TestGuardrails(t *testing.T) {
 	cases := map[string][]string{
-		``:                            {"send", "move", "delete"}, // safe by default
-		"[safety]\nsafe_mode = false": nil,
-		"[safety]\nallow_send = true": {"move", "delete"},
-		"[safety]\nallow_send = true\nallow_move = true":    {"delete"},
-		"[safety]\nsafe_mode = false\nallow_delete = false": {"delete"},
+		``:                           nil, // no guardrails by default
+		"[safety]\nsafe_mode = true": {"send", "move", "delete"},
+		"[safety]\nsafe_mode = true\nallow_send = true":                   {"move", "delete"},
+		"[safety]\nsafe_mode = true\nallow_send = true\nallow_move = true": {"delete"},
+		"[safety]\nallow_delete = false":                                   {"delete"},
 	}
 	for src, want := range cases {
 		if got := safety(t, src).Guards(); !reflect.DeepEqual(got, want) {
@@ -33,7 +33,7 @@ func TestGuardrails(t *testing.T) {
 }
 
 func TestMaySendTo(t *testing.T) {
-	s := safety(t, "[safety]\nsend_allow = [\"example.com\", \"friend@example.org\"]")
+	s := safety(t, "[safety]\nsafe_mode = true\nsend_allow = [\"example.com\", \"friend@example.org\"]")
 	self := "sam.rivera@example.com"
 	for addr, want := range map[string]bool{
 		"Sam.Rivera@example.com": true,
@@ -48,12 +48,15 @@ func TestMaySendTo(t *testing.T) {
 			t.Errorf("MaySendTo(%q) = %v, want %v", addr, got, want)
 		}
 	}
-	if !safety(t, "[safety]\nallow_send = true").MaySendTo("anyone@example.com", self) {
+	if !safety(t, "[safety]\nsafe_mode = true\nallow_send = true").MaySendTo("anyone@example.com", self) {
 		t.Error("allow_send should allow anyone")
 	}
-	s = safety(t, "")
+	s = safety(t, "[safety]\nsafe_mode = true")
 	if !s.MayMoveTo("ZORP-TEST") || s.MayMoveTo("Archive") {
 		t.Error("moves in safe mode")
+	}
+	if s = safety(t, ""); !s.MaySendTo("anyone@example.com", self) || !s.MayMoveTo("Archive") || !s.DeleteAllowed() {
+		t.Error("no guardrails by default")
 	}
 }
 

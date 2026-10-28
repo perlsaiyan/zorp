@@ -5,10 +5,9 @@ client_id = "3b6738c5-79e1-4a2a-a62c-587c5b6e0308"
 # "organizations" accepts any work/school account.
 tenant = "organizations"
 
-[safety]
-# Moves and archiving are allowed; deleting and sending to others stay
-# guarded until you decide otherwise (see README: Safety guardrails).
-allow_move = true
+# Guardrails are off by default. To try things out safely, uncomment:
+# [safety]
+# safe_mode = true    # only send to yourself; no deleting; moves only to scratch_folder
 
 [notify]
 click_command = "zorp-focus"

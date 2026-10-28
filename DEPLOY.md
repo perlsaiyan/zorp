@@ -36,7 +36,7 @@ zorp login
 
 `zorp login` signs in to the Microsoft 365 account. It uses a device code, falling back to the browser. The app registration's client ID is already in the example config. The token is stored in `~/.local/share/zorp`, readable only by the user.
 
-The example config allows moving and archiving, but **deleting and sending to anyone but yourself stay off** (safe mode). That's the owner's decision: don't change `[safety]` unless asked. The README explains every option.
+Guardrails are off by default: zorp can send, move and delete like any mail client. `safe_mode = true` in `[safety]` turns them back on. That's the owner's decision, so don't change `[safety]` unless asked. The README explains every option.
 
 ## 4. Daemon as a service
 
