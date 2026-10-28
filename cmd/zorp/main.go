@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -43,6 +44,7 @@ commands:
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
   daemon                         run the sync daemon in the foreground (for systemd or debugging)
+  version                        show the version and the commit it was built from
   notify-test                    send a test new-mail notification through the daemon
   mcp                            MCP server on stdio, for AI tools (read-only unless mcp.allow_writes)
 `
@@ -77,6 +79,8 @@ func main() {
 		err = runMCP(ctx)
 	case "notify-test":
 		err = runNotifyTest(ctx)
+	case "version", "--version", "-v":
+		fmt.Println(versionString())
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -548,6 +552,7 @@ func runMCP(ctx context.Context) error {
 		return err
 	}
 	defer st.Close()
+	mcpserver.Version = version
 	return mcpserver.New(cfg, st, account, nil).Run(ctx, &mcp.StdioTransport{})
 }
 
@@ -574,4 +579,40 @@ func runNotifyTest(ctx context.Context) error {
 		fmt.Println("Notifications are off (notify.enabled / notify.method).")
 	}
 	return nil
+}
+
+// version is set at release time (-ldflags "-X main.version=v1.2.3").
+var version = "dev"
+
+// versionString is the version plus the commit and date it was built
+// from, as Go records them.
+func versionString() string {
+	s := "zorp " + version
+	if info, ok := debug.ReadBuildInfo(); ok {
+		var rev, when, dirty string
+		for _, kv := range info.Settings {
+			switch kv.Key {
+			case "vcs.revision":
+				rev = kv.Value
+			case "vcs.time":
+				when = kv.Value
+			case "vcs.modified":
+				if kv.Value == "true" {
+					dirty = "+dirty"
+				}
+			}
+		}
+		if len(rev) > 12 {
+			rev = rev[:12]
+		}
+		if rev != "" {
+			s += " (" + rev + dirty
+			if when != "" {
+				s += ", " + when
+			}
+			s += ")"
+		}
+		s += " " + info.GoVersion
+	}
+	return s
 }

@@ -1,0 +1,21 @@
+# systemd user unit: keeps zorp's sync daemon (and new-mail notifications)
+# running whether or not a zorp window is open.
+#
+#   cp zorp.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now zorp
+#   journalctl --user -u zorp -f      # its log
+[Unit]
+Description=zorp mail sync daemon
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/zorp daemon
+Restart=on-failure
+RestartSec=30
+# notify.click_command and zorp-focus are looked up here.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin
+
+[Install]
+WantedBy=default.target

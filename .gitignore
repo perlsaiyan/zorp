@@ -3,3 +3,4 @@
 *.db-*
 token_cache.json*
 config.toml
+/dist

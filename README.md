@@ -4,6 +4,10 @@ A fast, keyboard-driven terminal mail client for Microsoft 365, talking to Micro
 
 **Status:** milestone 5 (rendering). HTML mail renders as styled text with link footnotes and folded reply history; read/unread, flag, archive and move work, in safe mode by default (see below). Search and compose come next.
 
+## Install
+
+To set zorp up on a desktop (Omarchy/Hyprland with Ghostty: binary, daemon service, hotkey and notifications), follow [DEPLOY.md](DEPLOY.md). Release tarballs are on the GitHub releases page.
+
 ## Build
 
 ```sh

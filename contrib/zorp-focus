@@ -1,0 +1,13 @@
+#!/bin/sh
+# zorp-focus: focus zorp's window in Hyprland, or open one in Ghostty.
+# Bind it to a key, and use it as notify.click_command.
+#
+# zorp's window has its own class, so it can be found and given rules. The
+# Ghostty flag makes it a separate instance, which a GTK single-instance
+# Ghostty would otherwise ignore the class for.
+class=com.zorp.mail
+
+if hyprctl clients | grep -q "class: $class\$"; then
+	exec hyprctl dispatch focuswindow "class:^$class\$"
+fi
+exec ghostty --class="$class" --title=zorp --gtk-single-instance=false -e zorp

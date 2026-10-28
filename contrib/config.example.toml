@@ -1,0 +1,18 @@
+# ~/.config/zorp/config.toml
+[auth]
+# Application (client) ID of the zorp app registration (owned by tom@nonserviam.net).
+client_id = "3b6738c5-79e1-4a2a-a62c-587c5b6e0308"
+# "organizations" accepts any work/school account.
+tenant = "organizations"
+
+[safety]
+# Moves and archiving are allowed; deleting and sending to others stay
+# guarded until you decide otherwise (see README: Safety guardrails).
+allow_move = true
+
+[notify]
+click_command = "zorp-focus"
+
+[ui]
+color = "auto"
+graphics = "auto"

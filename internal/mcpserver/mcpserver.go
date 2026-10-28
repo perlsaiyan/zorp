@@ -23,8 +23,8 @@ import (
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
-// Version is reported to clients.
-const Version = "0.9.0"
+// Version is reported to clients; main sets it to the release version.
+var Version = "dev"
 
 // CallFunc calls a daemon method (ipc.Method*).
 type CallFunc func(ctx context.Context, method string, params, result any) error
