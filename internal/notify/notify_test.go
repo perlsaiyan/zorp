@@ -80,10 +80,10 @@ func TestBuild(t *testing.T) {
 func TestTerminal(t *testing.T) {
 	n := Note{Title: "Al;ice\x1b\\", Body: "Hi\x07 there;\nsecond"}
 	ghost := Terminal(n, "xterm-ghostty", "", false)
-	if ghost != "\x1b]777;notify;Al,ice\\;Hi there, · second\x1b\\" {
+	if ghost != "\x1b]777;notify;zorp · Al,ice\\;Hi there, · second\x1b\\" {
 		t.Errorf("ghostty = %q", ghost)
 	}
-	if k := Terminal(n, "xterm-kitty", "", false); !strings.HasPrefix(k, "\x1b]99;i=zorp:d=0:p=title;") {
+	if k := Terminal(n, "xterm-kitty", "", false); !strings.HasPrefix(k, "\x1b]99;i=zorp:d=0:p=title;zorp · ") {
 		t.Errorf("kitty = %q", k)
 	}
 	if o := Terminal(n, "xterm-256color", "", false); !strings.HasPrefix(o, "\x1b]9;") || strings.Count(o, "\x07") != 1 {
@@ -91,5 +91,26 @@ func TestTerminal(t *testing.T) {
 	}
 	if tm := Terminal(n, "xterm-ghostty", "", true); !strings.HasPrefix(tm, "\x1bPtmux;") {
 		t.Errorf("tmux = %q", tm)
+	}
+}
+
+func TestUntag(t *testing.T) {
+	for _, c := range []struct {
+		in, want string
+		external bool
+	}{
+		{"[EXTERNAL]test", "test", true},
+		{"[External] [EXT] Re: lunch", "Re: lunch", true},
+		{"EXTERNAL: Invoice", "Invoice", true},
+		{"[EXTERNAL]", "[EXTERNAL]", false}, // nothing else to show
+		{"Plain subject", "Plain subject", false},
+	} {
+		if got, ext := untag(c.in); got != c.want || ext != c.external {
+			t.Errorf("untag(%q) = %q, %v", c.in, got, ext)
+		}
+	}
+	notes := Build(defaults(), []store.Message{msg("x", "Tom Allen", "tom@ext.example", "[EXTERNAL]test", false)})
+	if notes[0].Title != "Tom Allen (external)" || notes[0].Body != "test" {
+		t.Errorf("note = %+v", notes[0])
 	}
 }

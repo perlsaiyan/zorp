@@ -978,7 +978,7 @@ func TestNotifyEvents(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("no terminal notification")
 	}
-	if raw := fmt.Sprint(cmd()); !strings.Contains(raw, "]777;notify;Alice;Lunch?") {
+	if raw := fmt.Sprint(cmd()); !strings.Contains(raw, "]777;notify;zorp · Alice;Lunch?") {
 		t.Errorf("sequence = %q", raw)
 	}
 

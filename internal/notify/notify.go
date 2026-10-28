@@ -96,7 +96,8 @@ func Build(cfg config.Notify, msgs []store.Message) []Note {
 	case len(msgs) > max(cfg.GroupAfter, 1):
 		var lines []string
 		for _, m := range msgs[:3] {
-			lines = append(lines, short(sender(m.From), 30)+": "+short(subject(m), 60))
+			subj, _ := untag(subject(m))
+			lines = append(lines, short(sender(m.From), 30)+": "+short(subj, 60))
 		}
 		if len(msgs) > 3 {
 			lines = append(lines, "and "+strconv.Itoa(len(msgs)-3)+" more")
@@ -105,9 +106,35 @@ func Build(cfg config.Notify, msgs []store.Message) []Note {
 	}
 	var out []Note
 	for _, m := range msgs {
-		out = append(out, Note{Title: short(sender(m.From), 60), Body: short(subject(m), 160), GraphID: m.GraphID})
+		subj, external := untag(subject(m))
+		title := short(sender(m.From), 60)
+		if external {
+			title += " (external)"
+		}
+		out = append(out, Note{Title: title, Body: short(subj, 160), GraphID: m.GraphID})
 	}
 	return out
+}
+
+// untag drops the tags mail gateways put before external mail's subject
+// ("[EXTERNAL]", "[EXT]", "EXTERNAL:"), which would otherwise fill a
+// small notification. external reports whether there was one.
+func untag(subject string) (rest string, external bool) {
+	for {
+		s := strings.TrimSpace(subject)
+		lower := strings.ToLower(s)
+		cut := 0
+		for _, tag := range []string{"[external]", "[ext]", "external:", "[external email]"} {
+			if strings.HasPrefix(lower, tag) {
+				cut = len(tag)
+				break
+			}
+		}
+		if cut == 0 || cut == len(s) {
+			return s, external
+		}
+		subject, external = s[cut:], true
+	}
 }
 
 func count(n int) string {
@@ -220,8 +247,10 @@ func Desktop(ctx context.Context, n Note, clicked func()) error {
 // show n, for the terminal identified by term ($TERM) and program
 // ($TERM_PROGRAM): OSC 777 (Ghostty, foot, WezTerm…), OSC 99 (kitty) or
 // OSC 9 (most others). Inside tmux it's wrapped for passthrough.
+//
+// The terminal shows it under its own name, so the title says it's zorp.
 func Terminal(n Note, term, program string, tmux bool) string {
-	title, body := oneLine(n.Title), oneLine(strings.ReplaceAll(n.Body, "\n", " · "))
+	title, body := "zorp · "+oneLine(n.Title), oneLine(strings.ReplaceAll(n.Body, "\n", " · "))
 	var seq string
 	switch t, p := strings.ToLower(term), strings.ToLower(program); {
 	case strings.Contains(t, "kitty") || p == "kitty":
