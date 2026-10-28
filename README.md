@@ -1,12 +1,36 @@
 # zorp
 
-A fast, keyboard-driven terminal mail client for Microsoft 365, talking to Microsoft Graph directly (no IMAP). See [PLAN.md](PLAN.md) for the full design.
+A fast, keyboard-driven terminal mail client for Microsoft 365. It talks to Microsoft Graph directly (no IMAP), keeps a local cache so everything is instant, and feels like pine.
 
-**Status:** milestone 5 (rendering). HTML mail renders as styled text with link footnotes and folded reply history; read/unread, flag, archive and move work, in safe mode by default (see below). Search and compose come next.
+![zorp's main screen: folders, the message list and a preview of a message with a PDF attachment](docs/screenshots/inbox.png)
+
+- **Three panes, pine-style keys.** Folders, the message list and a preview, with a full-screen reader. Drag the dividers to resize them, or move the preview to the bottom.
+- **Mail as readable text.** HTML mail is turned into styled text, with links as numbered footnotes and reply history folded away. In kitty or Ghostty, inline images show up too. Remote images are never loaded.
+- **Conversations.** `T` collapses the list into one row per conversation. Enter reads the whole thread, oldest first, including your replies from Sent Items.
+- **Fast search.** Full-text search over the cache with `from:`, `is:unread`, `after:7d` and the like, falling back to a server search of the whole mailbox.
+- **Write in your editor, in Markdown.** Mail is sent formatted, and you review it before it goes. Replies thread properly in Outlook.
+- **Bulk actions.** Select messages with Space, or everything with `*`, then archive, move, mark or flag them all at once.
+- **A sync daemon.** It keeps the cache current with delta queries, sends your changes in the background and shows new-mail notifications.
+- **An MCP server.** `zorp mcp` lets AI tools like Claude Code read and search your mail. It is read-only unless you allow writes, and it can never send.
+- **Your terminal's colours.** zorp matches your terminal theme, with soft 24-bit tints for the cursor and selection.
+
+| Reading a conversation (`T`, then Enter) | Selecting messages for a bulk action |
+|---|---|
+| ![a three-message conversation shown oldest first](docs/screenshots/conversation.png) | ![three selected messages, tinted, with the bulk-action keys at the bottom](docs/screenshots/select.png) |
+
+The screenshots show made-up mail; `scripts/screenshots.sh` takes them.
+
+**Status:** zorp is in daily use against a real Microsoft 365 mailbox, on Linux. It is a personal project: expect rough edges, and set up [guardrails](#safety-guardrails) while you try it out.
 
 ## Install
 
-To set zorp up on a desktop (Omarchy/Hyprland with Ghostty: binary, daemon service, hotkey and notifications), follow [DEPLOY.md](DEPLOY.md). Release tarballs are on the GitHub releases page.
+Release tarballs for Linux (amd64 and arm64) are on the [releases page](https://github.com/perlsaiyan/zorp/releases). With Go 1.26 or later you can also install from source:
+
+```sh
+go install github.com/perlsaiyan/zorp/cmd/zorp@latest
+```
+
+Either way, you need your own [app registration](#app-registration) before you can sign in. To set zorp up on a desktop (Omarchy/Hyprland with Ghostty: binary, daemon service, hotkey and notifications), follow [DEPLOY.md](DEPLOY.md).
 
 ## Build
 
@@ -36,7 +60,7 @@ tenant = "organizations"   # any work/school account; or your org's tenant ID
 
 5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite**, **Mail.Send** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
 
-zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. `Mail.Send` and `MailboxSettings.Read` will be added to that list, and requested, by later milestones.
+zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. A later version may also ask for `MailboxSettings.Read`.
 
 ## Signing in
 
@@ -184,7 +208,7 @@ If sending fails partway, the message is kept in Drafts. Open it there with `e` 
 
 ```toml
 [compose]
-signature = "Sam Rivera\nExample Corp"   # added above the quoted text
+signature = "Sam Rivera\nExample Corp" # added above the quoted text
 editor = "nvim"                      # overrides $VISUAL / $EDITOR
 format = "markdown"                  # or "text"
 

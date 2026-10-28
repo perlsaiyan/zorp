@@ -1,7 +1,7 @@
 # ~/.config/zorp/config.toml
 [auth]
-# Application (client) ID of the zorp app registration (owned by tom@nonserviam.net).
-client_id = "3b6738c5-79e1-4a2a-a62c-587c5b6e0308"
+# Application (client) ID of your zorp app registration (README: App registration).
+client_id = "00000000-0000-0000-0000-000000000000"
 # "organizations" accepts any work/school account.
 tenant = "organizations"
 

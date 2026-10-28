@@ -127,7 +127,7 @@ func TestFoldHeuristicsAreConservative(t *testing.T) {
 }
 
 func TestSignatureFold(t *testing.T) {
-	d := FromText("Short reply.\n\n-- \nTom Allen\nCTO, Example Corp\n+1 555 0100")
+	d := FromText("Short reply.\n\n-- \nSam Rivera\nCTO, Example Corp\n+1 555 0100")
 	out := plain(d.Render(80, Options{}))
 	if strings.Contains(out, "CTO") || !strings.Contains(out, "signature hidden") {
 		t.Errorf("signature not folded:\n%s", out)

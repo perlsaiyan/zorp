@@ -37,12 +37,12 @@ func TestMaySendTo(t *testing.T) {
 	self := "sam.rivera@example.com"
 	for addr, want := range map[string]bool{
 		"Sam.Rivera@example.com": true,
-		"bob@example.com":       true, // allowed domain
-		"bob@evil-example.com":  false,
-		"bob@example.com.evil":  false,
-		"friend@example.org":      true,
-		"other@example.org":       false,
-		"":                        false,
+		"bob@example.com":        true, // allowed domain
+		"bob@evil-example.com":   false,
+		"bob@example.com.evil":   false,
+		"friend@example.org":     true,
+		"other@example.org":      false,
+		"":                       false,
 	} {
 		if got := s.MaySendTo(addr, self); got != want {
 			t.Errorf("MaySendTo(%q) = %v, want %v", addr, got, want)

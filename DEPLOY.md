@@ -4,7 +4,7 @@ This is a checklist for setting zorp up on a desktop, written so it can be hande
 
 ## 1. Get the binary
 
-Releases are on the private GitHub repo (`perlsaiyan/zorp`). With `gh` signed in to an account that can see it:
+Releases are on GitHub (`perlsaiyan/zorp`). With `gh`:
 
 ```sh
 gh release download --repo perlsaiyan/zorp --pattern 'zorp-*-linux-amd64.tar.gz' --pattern SHA256SUMS
@@ -34,7 +34,7 @@ cp contrib/config.example.toml ~/.config/zorp/config.toml
 zorp login
 ```
 
-`zorp login` signs in to the Microsoft 365 account. It uses a device code, falling back to the browser. The app registration's client ID is already in the example config. The token is stored in `~/.local/share/zorp`, readable only by the user.
+Set `client_id` in the config to the app registration's client ID: copy it from the config on a machine where zorp already works, or from Entra (App registrations → zorp → Overview). `zorp login` then signs in to the Microsoft 365 account. It uses a device code, falling back to the browser. The token is stored in `~/.local/share/zorp`, readable only by the user.
 
 Guardrails are off by default: zorp can send, move and delete like any mail client. `safe_mode = true` in `[safety]` turns them back on. That's the owner's decision, so don't change `[safety]` unless asked. The README explains every option.
 

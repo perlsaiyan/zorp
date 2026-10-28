@@ -47,7 +47,7 @@ Secondary goals:
 
 ## 4. Auth details
 
-- **App registration is owned by the developer, not the work tenant.** Register zorp in the developer's own Entra tenant (a nonserviam.net tenant, or the default directory created by a free Azure account if the developer only has a personal Microsoft account). Supported account types: **"Accounts in any organizational directory" (multi-tenant)**. The work tenant never hosts the registration; it only sees a consent request on first sign-in.
+- **App registration is owned by the developer, not the work tenant.** Register zorp in the developer's own Entra tenant (a tenant they own, or the default directory created by a free Azure account if the developer only has a personal Microsoft account). Supported account types: **"Accounts in any organizational directory" (multi-tenant)**. The work tenant never hosts the registration; it only sees a consent request on first sign-in.
 - The mailbox under test is the developer's **work account in their employer's tenant**. Whether sign-in succeeds depends on that tenant's consent settings: if user consent is restricted (e.g. verified publishers only, which an unverified personal app will fail), the user sees "Need admin approval" and IT must grant consent for this app. The probe in milestone 1 exists to find this out early. Do **not** work around a consent block by borrowing another app's client ID.
 - Authority: `https://login.microsoftonline.com/{tenant}`, where `tenant` in config defaults to `organizations`; setting it to the work tenant's ID is also fine.
 - Public client settings: redirect URIs `https://login.microsoftonline.com/common/oauth2/nativeclient` and `http://localhost` (for the interactive fallback), "Allow public client flows" = Yes.

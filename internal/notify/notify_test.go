@@ -109,8 +109,8 @@ func TestUntag(t *testing.T) {
 			t.Errorf("untag(%q) = %q, %v", c.in, got, ext)
 		}
 	}
-	notes := Build(defaults(), []store.Message{msg("x", "Tom Allen", "tom@ext.example", "[EXTERNAL]test", false)})
-	if notes[0].Title != "Tom Allen (external)" || notes[0].Body != "test" {
+	notes := Build(defaults(), []store.Message{msg("x", "Jo Park", "jo@ext.example", "[EXTERNAL]test", false)})
+	if notes[0].Title != "Jo Park (external)" || notes[0].Body != "test" {
 		t.Errorf("note = %+v", notes[0])
 	}
 }
