@@ -250,7 +250,7 @@ func (v *viewer) lines(w int) []string {
 	case viewImage:
 		out = append(out, v.img.Lines()...)
 	case viewDoc:
-		out = append(out, v.doc.Render(w, render.Options{ShowQuoted: true})...)
+		out = append(out, v.doc.Render(w, render.Options{ShowQuoted: true, Styles: &renderStyles})...)
 	case viewText:
 		out = append(out, textLines(v.text, w)...)
 	}

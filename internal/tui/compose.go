@@ -498,10 +498,10 @@ func (m *Model) composeLines(w, h int) []string {
 		lines = append(lines, styleError.Render(ansi.Truncate("  ✗ "+clean(p), w, "…")))
 	}
 	if total > largeMessage {
-		lines = append(lines, styleError.Render(ansi.Truncate("  ! The attachments come to "+humanSize(total)+"; many mail servers refuse messages over 25 MB.", w, "…")))
+		lines = append(lines, styleWarning.Render(ansi.Truncate("  ! The attachments come to "+humanSize(total)+"; many mail servers refuse messages over 25 MB.", w, "…")))
 	}
 	if len(atts) == 0 && compose.MentionsAttachment(c.msg.Body) {
-		lines = append(lines, styleError.Render(ansi.Truncate("  ! The message mentions an attachment, but nothing is attached (a attaches a file).", w, "…")))
+		lines = append(lines, styleWarning.Render(ansi.Truncate("  ! The message mentions an attachment, but nothing is attached (a attaches a file).", w, "…")))
 	}
 	var blocked []string
 	for _, list := range [][]store.Address{c.msg.To, c.msg.Cc, c.msg.Bcc} {
@@ -522,7 +522,7 @@ func (m *Model) composeLines(w, h int) []string {
 	if format == compose.FormatMarkdown {
 		// Show what the recipient will see.
 		mine, hasRef := markdown.SplitRef(c.msg.Body)
-		for _, l := range render.FromHTML(markdown.ToHTML(mine)).Render(bodyW, render.Options{ShowQuoted: true}) {
+		for _, l := range render.FromHTML(markdown.ToHTML(mine)).Render(bodyW, render.Options{ShowQuoted: true, Styles: &renderStyles}) {
 			lines = append(lines, "  "+l)
 		}
 		if hasRef && c.kind != compose.New {

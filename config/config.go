@@ -23,6 +23,9 @@ type Config struct {
 	UI      UI      `toml:"ui"`
 	Compose Compose `toml:"compose"`
 	MCP     MCP     `toml:"mcp"`
+	// Theme overrides colours by role (see README: Colours), e.g.
+	// accent = "#89b4fa" or selected = "magenta".
+	Theme map[string]string `toml:"theme"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
@@ -159,6 +162,11 @@ type UI struct {
 	// Graphics shows inline images: "auto" (detect), "kitty" (force the
 	// Kitty graphics protocol) or "none".
 	Graphics string `toml:"graphics"`
+	// Color is how much colour to use: "auto" (the terminal's ANSI
+	// colours, plus soft tints in a 24-bit terminal that reports its
+	// palette), "tint" (tints even without 24-bit detection), "ansi" (no
+	// tints) or "none" (no colour at all).
+	Color string `toml:"color"`
 }
 
 type Compose struct {
@@ -194,7 +202,7 @@ func defaults() Config {
 		},
 		Safety:  Safety{SafeMode: true, ScratchFolder: "zorp-test"},
 		Keys:    Keys{DeleteArchives: true},
-		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto"},
+		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
 		Compose: Compose{Format: "markdown"},
 	}
 }
@@ -224,6 +232,11 @@ func (c *Config) Validate() error {
 	}
 	if f := c.Compose.Format; f != "markdown" && f != "text" {
 		return fmt.Errorf("compose.format must be \"markdown\" or \"text\" in %s", c.Paths.ConfigFile)
+	}
+	switch c.UI.Color {
+	case "", "auto", "tint", "ansi", "none":
+	default:
+		return fmt.Errorf("ui.color must be \"auto\", \"tint\", \"ansi\" or \"none\" in %s", c.Paths.ConfigFile)
 	}
 	if c.Sync.Interval < 10*time.Second {
 		return fmt.Errorf("sync.interval must be at least 10s in %s", c.Paths.ConfigFile)

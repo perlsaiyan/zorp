@@ -19,6 +19,7 @@ import (
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
+	"github.com/perlsaiyan/zorp/internal/theme"
 )
 
 type pane int
@@ -84,6 +85,7 @@ type Model struct {
 	composing  *composing       // message being written (review screen)
 	viewer     *viewer          // attachment shown full screen
 	gfx        gfxState         // inline images (Kitty graphics)
+	colors     colors           // what the terminal reported about its colours
 	// leaving is a message just archived, deleted or moved: when the list
 	// refreshes, the cursor goes to the message after it.
 	leaving  string
@@ -109,6 +111,10 @@ func New(ctx context.Context, cfg *config.Config, st *store.Store, account store
 		preview:     viewport.New(),
 	}
 	m.loadUIState()
+	if err := theme.Check(cfg.Theme); err != nil {
+		m.errText = err.Error()
+	}
+	m.rebuildTheme()
 	loaded := loadData(ctx, st, account.ID, 0, "")
 	if loaded.err != nil {
 		return nil, loaded.err
@@ -249,6 +255,9 @@ func (m *Model) moveMessage(delta int) tea.Cmd {
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if cmd, ok := m.graphicsEvent(msg); ok {
+		return m, cmd
+	}
+	if cmd, ok := m.colorEvent(msg); ok {
 		return m, cmd
 	}
 	switch msg := msg.(type) {

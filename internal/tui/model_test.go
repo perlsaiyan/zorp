@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/ansi/kitty"
@@ -21,6 +23,7 @@ import (
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 	"github.com/perlsaiyan/zorp/internal/termgfx"
+	"github.com/perlsaiyan/zorp/internal/theme"
 )
 
 func newTestModel(t *testing.T) *Model {
@@ -937,5 +940,29 @@ func TestSelection(t *testing.T) {
 	press(m, "g", "s")
 	if len(m.selected) != 0 {
 		t.Error("selection kept across folders")
+	}
+}
+
+func TestTerminalColorsTint(t *testing.T) {
+	m := newTestModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	t.Cleanup(func() { applyTheme(theme.New(theme.ModeAuto, false, nil, nil)) })
+	plain := styleCursor.Render("x")
+	_, cmd := m.Update(tea.ColorProfileMsg{Profile: colorprofile.TrueColor})
+	if cmd == nil {
+		t.Fatal("24-bit terminal: no colour queries sent")
+	}
+	m.Update(tea.BackgroundColorMsg{Color: color.RGBA{30, 30, 46, 255}})
+	m.Update(tea.ForegroundColorMsg{Color: color.RGBA{205, 214, 244, 255}})
+	m.Update(uv.UnknownOscEvent("\x1b]4;4;rgb:89/b4/fa\x07"))
+	if m.colors.pal.ANSI[4] == nil || !strings.Contains(styleCursor.Render("x"), "48;2;") || styleCursor.Render("x") == plain {
+		t.Errorf("no tint after the terminal reported its colours: %q", styleCursor.Render("x"))
+	}
+
+	// ui.color = "ansi" keeps the plain look.
+	m.cfg.UI.Color = theme.ModeANSI
+	m.rebuildTheme()
+	if strings.Contains(styleCursor.Render("x"), "48;2;") {
+		t.Error("ansi mode tinted")
 	}
 }

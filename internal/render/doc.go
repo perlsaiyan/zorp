@@ -97,15 +97,43 @@ type Options struct {
 	// the given content ID in at most width columns, or nil to keep its
 	// text placeholder.
 	Image func(cid string, width int) []string
+	// Styles colours links and quote bars; nil uses plain defaults.
+	Styles *Styles
+}
+
+// Styles are the colours Render uses (see package theme).
+type Styles struct {
+	Link  lipgloss.Style
+	Quote [3]lipgloss.Style // quote bars, by depth (cycling)
+	Faint lipgloss.Style
 }
 
 var (
-	styleBold      = lipgloss.NewStyle().Bold(true)
-	styleItalic    = lipgloss.NewStyle().Italic(true)
-	styleFaint     = lipgloss.NewStyle().Faint(true)
-	styleUnderline = lipgloss.NewStyle().Underline(true)
-	styleQuoteBar  = lipgloss.NewStyle().Faint(true)
+	styleBold     = lipgloss.NewStyle().Bold(true)
+	styleItalic   = lipgloss.NewStyle().Italic(true)
+	defaultStyles = Styles{
+		Link:  lipgloss.NewStyle().Underline(true),
+		Quote: [3]lipgloss.Style{lipgloss.NewStyle().Faint(true), lipgloss.NewStyle().Faint(true), lipgloss.NewStyle().Faint(true)},
+		Faint: lipgloss.NewStyle().Faint(true),
+	}
 )
+
+func (o Options) styles() *Styles {
+	if o.Styles != nil {
+		return o.Styles
+	}
+	return &defaultStyles
+}
+
+// quoteBars draws a block's quote bars, coloured by depth.
+func (st *Styles) quoteBars(depth int) string {
+	var b strings.Builder
+	for i := range depth {
+		b.WriteString(st.Quote[i%len(st.Quote)].Render("│"))
+		b.WriteString(" ")
+	}
+	return b.String()
+}
 
 // Folded reports whether Render hides anything with these options.
 func (d *Doc) Folded(opts Options) bool {
@@ -150,7 +178,7 @@ func (d *Doc) Render(width int, opts Options) []string {
 		if hiddenFrom == d.Signature && d.History < 0 {
 			what = "signature"
 		}
-		out = append(out, "", styleFaint.Render(ansi.Truncate(
+		out = append(out, "", opts.styles().Faint.Render(ansi.Truncate(
 			"··· "+what+" hidden ("+itoa(hidden)+" lines) · z to show", width, "…")))
 	}
 
@@ -158,7 +186,7 @@ func (d *Doc) Render(width int, opts Options) []string {
 		out = append(out, "")
 		for i, l := range d.Links {
 			if used[i+1] {
-				out = append(out, styleFaint.Render(ansi.Truncate("["+itoa(i+1)+"] "+Sanitize(DisplayURL(l.URL), false), width, "…")))
+				out = append(out, opts.styles().Faint.Render(ansi.Truncate("["+itoa(i+1)+"] "+Sanitize(DisplayURL(l.URL), false), width, "…")))
 			}
 		}
 	}
@@ -174,7 +202,7 @@ func (d *Doc) Render(width int, opts Options) []string {
 // after the block's text).
 func renderWithImages(b Block, width int, opts Options) []string {
 	if opts.Image == nil {
-		return renderBlock(b, width)
+		return renderBlock(b, width, opts.styles())
 	}
 	quote := strings.Repeat("│ ", b.Quote)
 	var images [][]string
@@ -189,22 +217,22 @@ func renderWithImages(b Block, width int, opts Options) []string {
 		keep = append(keep, r)
 	}
 	if len(images) == 0 {
-		return renderBlock(b, width)
+		return renderBlock(b, width, opts.styles())
 	}
 	var out []string
 	b.Runs = keep
 	if strings.TrimSpace(b.Plain()) != "" {
-		out = renderBlock(b, width)
+		out = renderBlock(b, width, opts.styles())
 	}
 	for _, lines := range images {
 		for _, l := range lines {
-			out = append(out, styleQuoteBar.Render(quote)+l)
+			out = append(out, opts.styles().quoteBars(b.Quote)+l)
 		}
 	}
 	return out
 }
 
-func renderBlock(b Block, width int) []string {
+func renderBlock(b Block, width int, sty *Styles) []string {
 	quote := strings.Repeat("│ ", b.Quote)
 	indent := strings.Repeat("  ", b.Indent)
 	bullet := b.Bullet
@@ -212,7 +240,7 @@ func renderBlock(b Block, width int) []string {
 	cw := max(width-prefixW, 10)
 
 	if b.Kind == Rule {
-		return []string{styleQuoteBar.Render(quote) + styleFaint.Render(strings.Repeat("─", cw))}
+		return []string{sty.quoteBars(b.Quote) + sty.Faint.Render(strings.Repeat("─", cw))}
 	}
 
 	var s strings.Builder
@@ -225,10 +253,10 @@ func renderBlock(b Block, width int) []string {
 			st = st.Inherit(styleItalic)
 		}
 		if r.Faint {
-			st = st.Inherit(styleFaint)
+			st = st.Inherit(sty.Faint)
 		}
 		if r.Link > 0 {
-			st = st.Inherit(styleUnderline)
+			st = st.Inherit(sty.Link)
 		}
 		// Style each line separately so wrapping never splits an escape.
 		parts := strings.Split(r.Text, "\n")
@@ -255,7 +283,7 @@ func renderBlock(b Block, width int) []string {
 		if i == 0 {
 			lead = bullet
 		}
-		lines[i] = styleQuoteBar.Render(quote) + indent + lead + l
+		lines[i] = sty.quoteBars(b.Quote) + indent + lead + l
 	}
 	return lines
 }

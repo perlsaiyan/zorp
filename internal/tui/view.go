@@ -15,18 +15,6 @@ import (
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
-// Basic ANSI colors, so zorp follows the terminal's theme.
-var (
-	styleBar      = lipgloss.NewStyle().Reverse(true)
-	styleBold     = lipgloss.NewStyle().Bold(true)
-	styleFaint    = lipgloss.NewStyle().Faint(true)
-	styleCursor   = lipgloss.NewStyle().Reverse(true)
-	styleCursorBg = lipgloss.NewStyle().Underline(true) // cursor of an unfocused pane
-	styleError    = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
-	styleAccent   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
-	styleHeader   = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))
-)
-
 // geom is the screen layout for the current size and settings.
 type geom struct {
 	bodyH          int // rows between the top and bottom bars
@@ -135,7 +123,7 @@ func (m *Model) previewContent(w int) string {
 
 	switch m.bodyState {
 	case bodyReady:
-		opts := render.Options{ShowQuoted: m.showQuoted}
+		opts := render.Options{ShowQuoted: m.showQuoted, Styles: &renderStyles}
 		if m.gfx.support.Kitty {
 			opts.Image = m.imageLines
 		}
@@ -351,17 +339,21 @@ func (m *Model) listLines(w, h int) []string {
 
 		style := lipgloss.NewStyle()
 		if !msg.IsRead {
-			style = style.Bold(true)
+			style = style.Inherit(styleUnread)
 		}
-		if mark != ' ' {
-			style = style.Inherit(styleAccent)
-		}
-		if idx == m.msgCur {
-			if m.focus == paneList {
-				style = style.Inherit(styleCursor)
-			} else {
-				style = style.Inherit(styleCursorBg)
+		selected := mark != ' '
+		switch {
+		case idx == m.msgCur && m.focus == paneList && selected:
+			style = styleSelectedCursor.Inherit(style)
+		case idx == m.msgCur && m.focus == paneList:
+			style = styleCursor.Inherit(style)
+		case idx == m.msgCur:
+			style = styleCursorBg.Inherit(style)
+			if selected {
+				style = style.Inherit(styleSelected)
 			}
+		case selected:
+			style = styleSelected.Inherit(style)
 		}
 		lines[i] = style.Render(row)
 	}

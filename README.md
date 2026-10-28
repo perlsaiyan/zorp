@@ -107,6 +107,23 @@ In a terminal with the Kitty graphics protocol (kitty, Ghostty), inline images a
 
 zorp detects support by itself, which also works over SSH, because `TERM=xterm-kitty` or `xterm-ghostty` carries across. Inside tmux it needs `set -g allow-passthrough on`. To decide yourself, set `ui.graphics = "kitty"` or `"none"`; the default is `"auto"`.
 
+### Colours
+
+zorp uses your terminal's own colours, so it matches whatever theme you run. The cursor is reverse video, selected messages are magenta with a ✓, links are cyan, warnings are yellow and errors are red. Quote bars are coloured by depth.
+
+In a 24-bit colour terminal (kitty, Ghostty, WezTerm, iTerm2…), zorp asks the terminal for its background, foreground and palette. The cursor, selected rows and bars then become soft background tints mixed from your theme's colours. Over SSH it asks the terminal directly whether it does 24-bit colour, since `COLORTERM` usually doesn't come along. Inside tmux it uses standard hues in place of your palette.
+
+```toml
+[ui]
+color = "auto"   # "tint" forces the tints, "ansi" never tints, "none" uses no colour at all
+
+[theme]          # optional overrides: an ANSI number, a name (blue, bright-blue) or #rrggbb
+accent = "#89b4fa"
+selected_bg = "#45475a"
+```
+
+The roles are `accent`, `header`, `link`, `warning`, `error`, `selected`, `quote` (text colours) and `bar_bg`, `cursor_bg`, `selected_bg` (backgrounds). A mistake in `[theme]` is reported at the bottom of the screen when zorp starts.
+
 ### Over SSH
 
 When there's no local browser (an SSH session, or no display), `O` copies the chosen link to the clipboard of the terminal you're typing in, using OSC 52. `o` writes the message to an HTML file and copies its path. Inside tmux, copying needs `set -g set-clipboard on` in `~/.tmux.conf`. To choose the behaviour yourself, set `ui.open = "browser"` or `"copy"`; the default is `"auto"`. If `xdg-open` fails, zorp copies instead.
