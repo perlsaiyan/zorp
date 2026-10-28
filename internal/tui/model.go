@@ -778,8 +778,8 @@ func (m *Model) toggleFolderSync(on bool) tea.Cmd {
 
 // confirm is a pending y/n question; any key but y cancels.
 type confirm struct {
-	prompt  string
-	cmd     tea.Cmd
+	prompt         string
+	cmd            tea.Cmd
 	leaving        string // set as Model.leaving on y
 	clearSelection bool   // the selection was acted on
 }
