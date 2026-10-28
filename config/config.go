@@ -22,9 +22,18 @@ type Config struct {
 	Keys    Keys    `toml:"keys"`
 	UI      UI      `toml:"ui"`
 	Compose Compose `toml:"compose"`
+	MCP     MCP     `toml:"mcp"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
+}
+
+// MCP configures `zorp mcp`, the server that gives AI tools access to the
+// local cache.
+type MCP struct {
+	// AllowWrites enables the tools that change things: create_draft,
+	// mark_read, flag_message, move_message. Nothing can ever send mail.
+	AllowWrites bool `toml:"allow_writes"`
 }
 
 type Auth struct {

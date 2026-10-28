@@ -203,6 +203,35 @@ delete_archives = true  # d archives instead of deleting; X still deletes, after
 mouse = true            # click, scroll, drag dividers; Shift+drag to select text
 ```
 
+## AI tools (MCP)
+
+`zorp mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio, so AI tools such as Claude Code and Claude Desktop can read your mail through zorp's cache. To add it to Claude Code:
+
+```sh
+claude mcp add zorp -- /path/to/zorp mcp
+```
+
+For Claude Desktop, add it under `mcpServers` in its config: `"zorp": {"command": "/path/to/zorp", "args": ["mcp"]}`.
+
+| Tool | What it does |
+|---|---|
+| `search_messages` | Search with zorp's syntax (`budget from:alice after:30d`) plus filters; `server: true` searches the whole mailbox |
+| `list_unread` | Recent unread mail in a folder (Inbox by default) |
+| `get_message` | One message: headers, attachment list and the body as text, in pages for long ones |
+| `get_thread` | A whole conversation, oldest first |
+| `list_folders` | The folder tree with unread counts |
+
+These are read-only. With `mcp.allow_writes = true`, four more appear: `create_draft` (new, reply or forward, saved to Drafts), `mark_read`, `flag_message` and `move_message`. They go through the daemon, so the [guardrails](#safety-guardrails) still apply. **No tool sends mail**: you review a draft in zorp (`g d`, then `e`) and send it yourself.
+
+Email is written by other people and can contain text aimed at an AI ("ignore your instructions and…"). zorp marks all mail content as untrusted in every result, and the tool descriptions tell the model not to follow instructions found in email. Still, think about what a write-enabled tool could do if fooled, and keep writes off unless you want them.
+
+```toml
+[mcp]
+allow_writes = false   # true adds create_draft, mark_read, flag_message, move_message
+```
+
+The server opens the cache read-only. Bodies that aren't cached and server searches go through the daemon, which `zorp mcp` never starts by itself; without it, those return a note or an error.
+
 ## Safety guardrails
 
 zorp starts with three guardrails on. The daemon enforces them, so they cover every client, including the MCP server later:

@@ -416,3 +416,18 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 	}
 	return out, rows.Err()
 }
+
+// MessagesInConversation returns a conversation's cached messages (in any
+// folder), oldest first, at most limit.
+func (s *Store) MessagesInConversation(ctx context.Context, accountID int64, conversationID string, limit int) ([]Message, error) {
+	if conversationID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT `+messageCols+` FROM messages
+		WHERE account_id = ? AND conversation_id = ? AND deleted = 0
+		ORDER BY received_at ASC LIMIT ?`, accountID, conversationID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanMessages(rows)
+}

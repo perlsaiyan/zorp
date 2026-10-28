@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/perlsaiyan/zorp/config"
 	"github.com/perlsaiyan/zorp/internal/auth"
@@ -22,6 +23,7 @@ import (
 	"github.com/perlsaiyan/zorp/internal/graph"
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/mailsync"
+	"github.com/perlsaiyan/zorp/internal/mcpserver"
 	"github.com/perlsaiyan/zorp/internal/render"
 	"github.com/perlsaiyan/zorp/internal/store"
 	"github.com/perlsaiyan/zorp/internal/tui"
@@ -41,6 +43,7 @@ commands:
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
   daemon                         run the sync daemon in the foreground (for systemd or debugging)
+  mcp                            MCP server on stdio, for AI tools (read-only unless mcp.allow_writes)
 `
 
 func main() {
@@ -69,6 +72,8 @@ func main() {
 		err = runSearch(ctx, args)
 	case "daemon":
 		err = runDaemon(ctx, args)
+	case "mcp":
+		err = runMCP(ctx)
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
@@ -526,4 +531,19 @@ func runSearch(ctx context.Context, args []string) error {
 		fmt.Printf("(newest %d shown; use -n for more)\n", len(msgs))
 	}
 	return nil
+}
+
+// runMCP serves the cache to an AI tool over stdio. stdout carries the
+// protocol, so nothing else may print there.
+func runMCP(ctx context.Context) error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	st, account, err := openCache(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	return mcpserver.New(cfg, st, account, nil).Run(ctx, &mcp.StdioTransport{})
 }
