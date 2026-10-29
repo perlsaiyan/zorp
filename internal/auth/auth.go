@@ -25,6 +25,12 @@ var Scopes = []string{"User.Read", "Mail.Read", "Mail.ReadWrite", "Mail.Send"}
 // tokens, so mail keeps working if calendar consent is refused.
 const CalendarScope = "Calendars.ReadWrite"
 
+// DirectoryScopes are asked for at sign-in when contacts.directory is
+// set, for looking people up while writing: People.Read ranks the people
+// the user works with, User.ReadBasic.All finds anyone in the
+// organization. Like the calendar, mail works without them.
+var DirectoryScopes = []string{"People.Read", "User.ReadBasic.All"}
+
 // ErrNeedsLogin means there is no usable cached sign-in; run `zorp login`.
 var ErrNeedsLogin = errors.New("not signed in (run `zorp login`)")
 
@@ -58,9 +64,12 @@ func New(cfg *config.Config) (*Authenticator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating MSAL client: %w", err)
 	}
-	login := Scopes
+	login := append([]string{}, Scopes...)
 	if cfg.Calendar.Enabled {
-		login = append(append([]string{}, Scopes...), CalendarScope)
+		login = append(login, CalendarScope)
+	}
+	if cfg.Contacts.Directory {
+		login = append(login, DirectoryScopes...)
 	}
 	return &Authenticator{client: client, cache: fc, login: login}, nil
 }
@@ -134,15 +143,31 @@ var ErrNoCalendar = errors.New("zorp has no calendar access yet: run `zorp login
 // Calendar hands out tokens that carry calendar access, for calendar
 // calls. Asking for the scope by name makes MSAL refresh a cached token
 // from before consent was granted.
-func (a *Authenticator) Calendar() calendarTokens { return calendarTokens{a} }
+func (a *Authenticator) Calendar() scopedTokens {
+	return scopedTokens{a, []string{CalendarScope}, ErrNoCalendar}
+}
 
-type calendarTokens struct{ a *Authenticator }
+// ErrNoDirectory means directory lookups haven't been consented to.
+var ErrNoDirectory = errors.New("zorp can't look people up in the directory yet: run `zorp login` and accept the permission (or set contacts.directory = false)")
 
-func (c calendarTokens) Token(ctx context.Context) (string, error) {
-	tok, err := c.a.token(ctx, []string{CalendarScope})
+// Directory hands out tokens for looking people up (DirectoryScopes).
+func (a *Authenticator) Directory() scopedTokens {
+	return scopedTokens{a, DirectoryScopes, ErrNoDirectory}
+}
+
+// scopedTokens are tokens asked for with particular scopes, so that a
+// token cached from before consent is refreshed.
+type scopedTokens struct {
+	a       *Authenticator
+	scopes  []string
+	missing error // when signed in but without the scopes
+}
+
+func (s scopedTokens) Token(ctx context.Context) (string, error) {
+	tok, err := s.a.token(ctx, s.scopes)
 	if errors.Is(err, ErrNeedsLogin) {
-		if _, acctErr := c.a.Account(ctx); acctErr == nil {
-			return "", fmt.Errorf("%w (%v)", ErrNoCalendar, err)
+		if _, acctErr := s.a.Account(ctx); acctErr == nil {
+			return "", fmt.Errorf("%w (%v)", s.missing, err)
 		}
 	}
 	return tok, err

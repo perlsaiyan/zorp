@@ -52,6 +52,13 @@ func main() {
 			return ipc.Status{State: ipc.StateIdle, Account: me, LastSync: started.Unix(), PID: os.Getpid()}, nil
 		case ipc.MethodMutate:
 			return ipc.MutateResult{}, nil
+		case ipc.MethodPeople:
+			return []ipc.Person{
+				{Name: "Maria Ortiz", Addr: "maria@example.com", Title: "Designer, Product"},
+				{Name: "Marcus Webb", Addr: "marcus@example.com", Title: "Engineer, Platform"},
+			}, nil
+		case ipc.MethodFreeBusy:
+			return []ipc.FreeBusy{}, nil
 		case ipc.MethodMeeting:
 			return ipc.MeetingInfo{Found: true, EventID: "e1", Response: "tentativelyAccepted", Organizer: false, JoinURL: "https://teams.example.com/l/meetup-join/1on1"}, nil
 		}

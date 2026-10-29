@@ -58,7 +58,7 @@ client_id = "00000000-0000-0000-0000-000000000000"
 tenant = "organizations"   # any work/school account; or your org's tenant ID
 ```
 
-5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite**, **Mail.Send**, **Calendars.ReadWrite** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
+5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite**, **Mail.Send**, **Calendars.ReadWrite**, **People.Read**, **User.ReadBasic.All** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
 
 zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. A later version may also ask for `MailboxSettings.Read`.
 
@@ -323,29 +323,42 @@ remind = "10m"   # "0" turns reminders off
 
 ### Planning meetings
 
-`n` in the calendar, or `M` on a message, opens a meeting file in your editor, the way mail is written. `M` starts with the message's sender and recipients invited and its subject:
+`n` in the calendar, or `M` on a message, opens a meeting form. `M` fills in the message's sender and recipients, and its subject:
 
 ```
-Subject: Launch retro
-When: Fri 30 Oct 2026 10:00
-Length: 30m
-Invite: Priya Natarajan <priya@example.com>, dana@partner.example.org
-Optional:
-Where: Room 4
-Teams: yes
+  New meeting
 
-What went well, and what we'd change.
+  Subject     Launch retro
+› Day         Fri 30 Oct 2026  arrows move · pgup/pgdn month · home today
+              October 2026
+              Mo  Tu  We  Th  Fr  Sa  Su
+              ...
+  Time        10:00
+  Length      30m
+  Invite       Priya Natarajan   mar
+              Marcus Webb  marcus@example.com  · you've had mail with them
+              Maria Ortiz  maria@example.com  · Designer, Product
+  Optional
+  Where       Room 4
+  Teams       [x] a Teams link
+  Description 3 lines
 ```
 
-- **When** is local time. These all work: `Fri 30 Oct 2026 10:00`, `2026-10-30 14:30`, `tomorrow 2pm`, `mon 9:30`, `30 Oct 10am`. A day with no time makes an all-day meeting, and its **Length** is then in days (`2d`).
-- **Teams: yes** adds a Teams link (`calendar.teams` sets the default).
-- **The description** is Markdown, like mail (`compose.format`).
+- `Tab` and `Shift+Tab` (or `↑`/`↓`) move between fields.
+- **Day:** pick a day on the month grid with the arrows: `←`/`→` change the day, `↑`/`↓` the week, `PgUp`/`PgDn` the month, and `Home` goes back to today. Days with meetings are marked `·`. Or type a day, such as `tomorrow 2pm`, `mon 9:30` or `30 Oct`, and press `Enter`; a time in it fills in **Time**.
+- **Time and Length:** `↑`/`↓` move them by 15 minutes. An empty Time makes an all-day meeting, and its Length is then in days (`2d`).
+- **People:** start typing a name or address. Suggestions come first from people you've had mail with, ranked by how much and how recently, then from your organization's directory. `Enter` or `Tab` picks one, a typed address followed by `,` adds it, and `Backspace` on an empty line removes the last person.
+- **Teams:** `Space` toggles it. `calendar.teams` sets the default.
+- **Description:** `Enter` on it (or `Ctrl+E` anywhere) writes it in your editor, in Markdown like mail.
+- `Ctrl+S` goes on to the review screen, and `Esc` asks whether to discard the meeting.
 
-After the editor you get a review screen, which shows clashes with your calendar, mistakes in the file, and who will be mailed. It also shows whether each person invited is free then. That lookup is read-only, and covers only what their organization shares, usually just busy times; people outside it show as "not shared". Nothing is sent until you press `y`. Then Exchange sends the invites. A meeting with nobody else invited just goes on your calendar.
+The review screen shows mistakes, clashes with your calendar, whether each person is free, and who will be mailed. The free/busy lookup is read-only and covers what their organization shares, usually just busy times; people outside it show as "not shared". `y` sends the invites, `e` goes back to the form. A meeting with nobody else invited just goes on your calendar.
 
-**Changing a meeting** (`e`) works the same way, and everyone invited gets the update. Anyone you take off gets a cancellation. Only what you changed is sent. An unchanged description keeps its formatting and Teams details. Once a meeting has a Teams link, it can't be removed. On a recurring meeting, zorp asks whether you mean this occurrence or the whole series. For the whole series, the times can't be changed here.
+**Changing a meeting** (`e` in the calendar) opens the same form, filled in, and everyone invited gets the update. Anyone you take off gets a cancellation. Only what you changed is sent; an unchanged description keeps its formatting and Teams details. Once a meeting has a Teams link, it can't be removed. On a recurring meeting, zorp asks whether you mean this occurrence or the whole series; a whole series' times can't be changed here.
 
-**Cancelling** (`D`) asks for an optional note, then for a y/n, and sends everyone the cancellation. A meeting with nobody else invited is simply deleted.
+**Cancelling** (`D` in the calendar) asks for an optional note, then for a y/n, and sends everyone the cancellation. A meeting with nobody else invited is simply deleted.
+
+Suggestions from the directory need `People.Read` and `User.ReadBasic.All`, which `zorp login` asks for. `zorp probe` checks them. Without them, suggestions come from your mail only. `contacts.directory = false` stops zorp asking.
 
 Invites, updates and cancellations are all mail, so the send [guardrail](#safety-guardrails) applies to them. The AI tools can't create, change or cancel meetings.
 
@@ -425,7 +438,7 @@ The first time you sign in with a work account, your organization decides whethe
 - **App name:** zorp
 - **Application (client) ID:** your `client_id`
 - **Type:** public client (no secret), delegated permissions only, signs in as you
-- **Delegated permissions:** `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `offline_access`; later `MailboxSettings.Read`
+- **Delegated permissions:** `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `People.Read`, `User.ReadBasic.All`, `offline_access`; later `MailboxSettings.Read`
 - **How to grant:** Entra admin center → Enterprise applications → zorp → Permissions → Grant admin consent (the app appears there after your first sign-in attempt), or open `https://login.microsoftonline.com/<tenant-id>/adminconsent?client_id=<client_id>` as an admin
 
 If sign-in is blocked by Conditional Access (`AADSTS53003`), try `zorp login --browser`; device code flow is commonly blocked while browser sign-in is allowed.

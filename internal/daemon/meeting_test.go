@@ -85,6 +85,7 @@ func newMeetingDaemon(t *testing.T, cfg *config.Config, g http.Handler) *daemon 
 		store:  st,
 		engine: mailsync.New(graph.New(token{}, opt), st, mailsync.Options{}, log),
 		cal:    graph.New(token{}, opt),
+		dir:    graph.New(token{}, opt),
 		server: ipc.NewServer(nil, log),
 		log:    log,
 	}

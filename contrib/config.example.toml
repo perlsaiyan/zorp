@@ -14,6 +14,9 @@ after_respond = "archive"   # what happens to an invite once answered: archive, 
 remind = "10m"              # meeting reminders, through [notify]; "0" turns them off
 teams = true                # new meetings get a Teams link (the meeting file's Teams: line overrides)
 
+[contacts]
+directory = true            # suggest people from the organization's directory (People.Read, User.ReadBasic.All)
+
 [notify]
 click_command = "zorp-focus"
 

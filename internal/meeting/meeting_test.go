@@ -4,8 +4,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/perlsaiyan/zorp/internal/store"
 )
 
 // Thursday 29 Oct 2026, 15:10.
@@ -74,39 +72,15 @@ func TestParseLength(t *testing.T) {
 	}
 }
 
-func TestFileRoundTrip(t *testing.T) {
-	p := Plan{
-		Subject: "Roadmap review", Start: time.Date(2026, 10, 30, 10, 0, 0, 0, time.UTC), Length: 45 * time.Minute,
-		Invite:   []store.Address{{Name: "Alice Example", Addr: "alice@example.com"}, {Addr: "bob@example.com"}},
-		Optional: []store.Address{{Addr: "carol@example.com"}}, Where: "Room 4", Teams: true,
-		Description: "Let's settle the Q1 plan.\n",
-	}
-	text := File(p, FileOptions{})
-	for _, want := range []string{"When: Fri 30 Oct 2026 10:00\n", "Length: 45m\n", "Teams: yes\n", "Invite: Alice Example <alice@example.com>, bob@example.com\n"} {
-		if !strings.Contains(text, want) {
-			t.Errorf("file lacks %q:\n%s", want, text)
+func TestParseClock(t *testing.T) {
+	for in, want := range map[string][2]int{"10:00": {10, 0}, "9": {9, 0}, "2pm": {14, 0}, "2:30 pm": {14, 30}, "12am": {0, 0}, "14.30": {14, 30}, "1430": {14, 30}, "930": {9, 30}} {
+		if h, mi, err := ParseClock(in); err != nil || h != want[0] || mi != want[1] {
+			t.Errorf("%q = %d:%d %v", in, h, mi, err)
 		}
 	}
-	got, err := Parse(text, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Subject != p.Subject || !got.Start.Equal(p.Start) || got.Length != p.Length || got.Attendees() != 3 || got.Where != p.Where || !got.Teams || got.Description != p.Description {
-		t.Errorf("round trip: %+v", got)
-	}
-	if !got.End().Equal(p.Start.Add(45 * time.Minute)) {
-		t.Errorf("end = %v", got.End())
-	}
-
-	// An all-day meeting, with the length left out.
-	got, err = Parse("Subject: Offsite\nWhen: 3 Nov\nLength:\n", now)
-	if err != nil || !got.AllDay || got.Days != 1 || !got.End().Equal(time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)) {
-		t.Errorf("all day: %+v %v", got, err)
-	}
-	if _, err := Parse("Subject: x\nWhen: someday\nColour: red\n", now); err == nil || !strings.Contains(err.Error(), "When:") || !strings.Contains(err.Error(), "Colour") {
-		t.Errorf("err = %v", err)
-	}
-	if f := File(p, FileOptions{Editing: true, NoTime: true}); strings.Contains(f, "When:") || !strings.Contains(f, "recurring") {
-		t.Errorf("series file:\n%s", f)
+	for _, bad := range []string{"25:00", "13pm", "noon", "", "10:75"} {
+		if _, _, err := ParseClock(bad); err == nil {
+			t.Errorf("%q should fail", bad)
+		}
 	}
 }

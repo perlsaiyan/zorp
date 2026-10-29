@@ -100,6 +100,7 @@ type Model struct {
 	buttons    buttonRow                  // clickable buttons in the preview
 	agenda     *agendaView                // the calendar (g c), when open
 	planning   *planning                  // a meeting being written
+	contacts   []store.Contact            // people in the mail cache, best first, for suggestions
 	clock      func() time.Time           // for tests; nil means time.Now
 	promptDone func(string) tea.Cmd       // what Enter does in a prompt that isn't search
 	convAnchor int                        // line of conv's first unread message
@@ -290,6 +291,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.prompt != nil {
 			return m, m.promptMsg(msg)
 		}
+		if m.formOpen() {
+			m.errText = ""
+			return m, m.formMsg(msg)
+		}
 		cmd := m.handleKey(msg.String())
 		return m, tea.Batch(cmd, m.maybeLoadImages())
 
@@ -299,6 +304,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		if m.prompt != nil {
 			return m, m.promptMsg(msg)
+		}
+		if m.formOpen() {
+			return m, m.formMsg(msg)
 		}
 		return m, nil
 
@@ -317,8 +325,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case planReadyMsg:
 		return m, m.planReady(msg)
 
-	case planEditorDoneMsg:
-		return m, m.planEditorDone(msg.err)
+	case descEditedMsg:
+		m.descEdited(msg.err)
+		return m, nil
+
+	case lookupDueMsg:
+		return m, m.lookupDue(msg)
+
+	case peopleFoundMsg:
+		m.peopleFound(msg)
+		return m, nil
+
+	case contactsMsg:
+		if msg.err == nil {
+			m.contacts = msg.contacts
+		}
+		return m, nil
 
 	case planDoneMsg:
 		return m, m.planDone(msg)

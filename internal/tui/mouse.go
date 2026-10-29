@@ -80,6 +80,9 @@ func (m *Model) hitDivider(x, y int) divider {
 }
 
 func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
+	if m.planning != nil || m.composing != nil {
+		return nil // a form or review screen
+	}
 	mouse := msg.Mouse()
 	if m.viewer != nil {
 		if _, ok := msg.(tea.MouseWheelMsg); ok {

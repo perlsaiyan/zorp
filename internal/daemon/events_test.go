@@ -32,6 +32,10 @@ func (g *eventsGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	g.calls = append(g.calls, strings.TrimSpace(r.Method+" "+r.URL.Path+" "+string(body)))
 	switch {
+	case r.URL.Path == "/me/people":
+		io.WriteString(w, `{"value":[{"displayName":"Alice Ng","jobTitle":"Engineer","department":"Platform","scoredEmailAddresses":[{"address":"alice@example.com"}]},{"displayName":"No Mail","scoredEmailAddresses":[]}]}`)
+	case r.URL.Path == "/users":
+		io.WriteString(w, `{"value":[{"displayName":"Alice Ng","mail":"Alice@example.com"},{"displayName":"Alan Oak","mail":"alan@example.com"},{"displayName":"Room 4"}]}`)
 	case r.URL.Path == "/me/calendar/getSchedule":
 		io.WriteString(w, `{"value":[
 			{"scheduleId":"alice@example.com","scheduleItems":[
@@ -169,5 +173,21 @@ func TestFreeBusy(t *testing.T) {
 	}
 	if _, err := call(t, d.freeBusy, ipc.FreeBusyParams{Start: start, End: start}); err == nil {
 		t.Error("empty request")
+	}
+}
+
+func TestPeople(t *testing.T) {
+	g := &eventsGraph{}
+	d := newMeetingDaemon(t, &config.Config{Contacts: config.Contacts{Directory: true}}, g)
+	res, err := call(t, d.people, ipc.PeopleParams{Query: "al"})
+	if err != nil || len(res) != 2 || res[0].Title != "Engineer, Platform" || res[1].Addr != "alan@example.com" {
+		t.Fatalf("people = %+v, %v", res, err)
+	}
+	if res, _ := call(t, d.people, ipc.PeopleParams{Query: "a"}); len(res) != 0 {
+		t.Error("one letter shouldn't look anyone up")
+	}
+	d.cfg.Contacts.Directory = false
+	if _, err := call(t, d.people, ipc.PeopleParams{Query: "al"}); err == nil {
+		t.Error("directory off")
 	}
 }

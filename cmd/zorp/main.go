@@ -424,6 +424,18 @@ func runProbe(ctx context.Context, args []string) error {
 	} else {
 		fmt.Printf("ok: %d meetings today\n", n)
 	}
+	fmt.Print("7. Directory (People.Read) .. ")
+	if !cfg.Contacts.Directory {
+		fmt.Println("off (contacts.directory = false)")
+	} else if ps, err := graph.New(a.Directory()).People(ctx, "", 5); err != nil {
+		fmt.Println("MISSING")
+		fmt.Printf("   %v\n   Suggestions come from the mail cache only.\n", err)
+	} else if _, err := graph.New(a.Directory()).Users(ctx, "a", 1); err != nil {
+		fmt.Println("PARTIAL")
+		fmt.Printf("   People.Read works (%d people), but searching the directory doesn't (User.ReadBasic.All): %v\n", len(ps), err)
+	} else {
+		fmt.Printf("ok: %d people you work with\n", len(ps))
+	}
 	fmt.Println()
 
 	for _, m := range msgs {

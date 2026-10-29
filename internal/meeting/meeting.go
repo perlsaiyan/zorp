@@ -1,19 +1,6 @@
-// Package meeting builds and parses the text file a meeting is planned
-// in, the way package compose does for mail:
-//
-//	Subject: Roadmap review
-//	When: Fri 30 Oct 2026 10:00
-//	Length: 45m
-//	Invite: Alice Example <alice@example.com>, bob@example.com
-//	Optional: carol@example.com
-//	Where: Room 4
-//	Teams: yes
-//
-//	Let's settle the Q1 plan.
-//
-// When takes a date and a time in local time, in a few forms ("Fri 30 Oct
-// 2026 10:00", "2026-10-30 14:30", "tomorrow 2pm", "mon 9:30"); a day with
-// no time is an all-day meeting, and its Length counts days ("2d").
+// Package meeting holds a planned meeting and reads the ways its time
+// and length are typed: days ("Fri 30 Oct 2026", "tomorrow", "mon"),
+// clock times ("10:00", "2pm") and lengths ("30m", "1h30", "2d").
 package meeting
 
 import (
@@ -24,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/perlsaiyan/zorp/internal/compose"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -54,15 +40,7 @@ func (p Plan) End() time.Time {
 // Attendees is how many people are invited.
 func (p Plan) Attendees() int { return len(p.Invite) + len(p.Optional) }
 
-// FileOptions say what kind of file it is.
-type FileOptions struct {
-	Editing bool // an existing meeting
-	// NoTime leaves out When and Length: a recurring series, whose times
-	// zorp doesn't change.
-	NoTime bool
-}
-
-// When formats a start for the When line.
+// When formats a meeting's start.
 func When(start time.Time, allDay bool) string {
 	if allDay {
 		return start.Format("Mon 02 Jan 2006")
@@ -70,7 +48,7 @@ func When(start time.Time, allDay bool) string {
 	return start.Format("Mon 02 Jan 2006 15:04")
 }
 
-// FormatLength formats a Length line's value.
+// FormatLength formats a meeting's length, as ParseLength reads it.
 func FormatLength(p Plan) string {
 	if p.AllDay {
 		return strconv.Itoa(max(p.Days, 1)) + "d"
@@ -84,137 +62,6 @@ func FormatLength(p Plan) string {
 		return strconv.Itoa(h) + "h"
 	}
 	return fmt.Sprintf("%dh%dm", h, mins)
-}
-
-// File renders p as the text to edit.
-func File(p Plan, o FileOptions) string {
-	var b strings.Builder
-	if o.Editing {
-		b.WriteString("# zorp: editing a meeting. Change the lines and the description, save and quit.\n")
-		b.WriteString("# Nothing is sent until you confirm; then everyone invited gets the update.\n")
-	} else {
-		b.WriteString("# zorp: new meeting. Fill in the lines, write a description below the blank line, save and quit.\n")
-		b.WriteString("# Nothing is sent until you confirm. Lines starting with # up here are ignored.\n")
-	}
-	if o.NoTime {
-		b.WriteString("# This is a recurring meeting: its times can't be changed here.\n")
-	} else {
-		b.WriteString("# When: e.g. \"Fri 30 Oct 2026 10:00\", \"tomorrow 2pm\", \"mon 9:30\"; a day alone is all day.\n")
-		b.WriteString("# Length: e.g. 30m, 1h, 1h30m, or 2d for an all-day meeting.\n")
-	}
-	b.WriteString("# Invite: the people needed; Optional: the rest. Teams: yes adds a Teams link.\n")
-	b.WriteString("Subject: " + compose.OneLine(p.Subject) + "\n")
-	if !o.NoTime {
-		when := ""
-		if !p.Start.IsZero() {
-			when = When(p.Start, p.AllDay)
-		}
-		b.WriteString("When: " + when + "\n")
-		b.WriteString("Length: " + FormatLength(p) + "\n")
-	}
-	b.WriteString("Invite: " + compose.FormatAddresses(p.Invite) + "\n")
-	b.WriteString("Optional: " + compose.FormatAddresses(p.Optional) + "\n")
-	b.WriteString("Where: " + compose.OneLine(p.Where) + "\n")
-	teams := "no"
-	if p.Teams {
-		teams = "yes"
-	}
-	b.WriteString("Teams: " + teams + "\n")
-	b.WriteString("\n")
-	b.WriteString(p.Description)
-	if !strings.HasSuffix(p.Description, "\n") {
-		b.WriteString("\n")
-	}
-	return b.String()
-}
-
-// Parse reads an edited meeting file. now resolves relative days
-// ("tomorrow", "fri").
-func Parse(text string, now time.Time) (Plan, error) {
-	var p Plan
-	text = strings.ReplaceAll(text, "\r\n", "\n")
-	head, body, found := strings.Cut(text, "\n\n")
-	if !found {
-		head, body = text, ""
-	}
-	var errs []string
-	var when, length string
-	haveLength := false
-	for i, line := range strings.Split(head, "\n") {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			errs = append(errs, fmt.Sprintf("line %d isn't a header (add a blank line before the description): %q", i+1, line))
-			continue
-		}
-		value = strings.TrimSpace(value)
-		var err error
-		switch k := strings.ToLower(strings.TrimSpace(key)); k {
-		case "subject":
-			p.Subject = value
-		case "when":
-			when = value
-		case "length":
-			length, haveLength = value, true
-		case "invite", "to":
-			var as []store.Address
-			as, err = compose.ParseAddresses(value)
-			p.Invite = append(p.Invite, as...)
-		case "optional":
-			var as []store.Address
-			as, err = compose.ParseAddresses(value)
-			p.Optional = append(p.Optional, as...)
-		case "where":
-			p.Where = value
-		case "teams":
-			switch strings.ToLower(value) {
-			case "yes", "y", "true", "on":
-				p.Teams = true
-			case "no", "n", "false", "off", "":
-				p.Teams = false
-			default:
-				err = fmt.Errorf("%q isn't yes or no", value)
-			}
-		default:
-			errs = append(errs, fmt.Sprintf("unknown header %q", strings.TrimSpace(key)))
-		}
-		if err != nil {
-			errs = append(errs, strings.TrimSpace(key)+": "+err.Error())
-		}
-	}
-	if when != "" {
-		start, allDay, err := ParseWhen(when, now)
-		if err != nil {
-			errs = append(errs, "When: "+err.Error())
-		}
-		p.Start, p.AllDay = start, allDay
-		if !haveLength || length == "" {
-			length = "30m"
-			if allDay {
-				length = "1d"
-			}
-		}
-		d, days, err := ParseLength(length, allDay)
-		if err != nil {
-			errs = append(errs, "Length: "+err.Error())
-		}
-		p.Length, p.Days = d, days
-	} else if haveLength && length != "" {
-		if _, _, err := ParseLength(length, false); err != nil {
-			errs = append(errs, "Length: "+err.Error())
-		}
-	}
-	body = strings.TrimLeft(body, "\n")
-	p.Description = strings.TrimRight(body, " \t\n") + "\n"
-	if strings.TrimSpace(body) == "" {
-		p.Description = ""
-	}
-	if len(errs) > 0 {
-		return p, errors.New(strings.Join(errs, "; "))
-	}
-	return p, nil
 }
 
 var (
@@ -363,7 +210,35 @@ func ParseWhen(s string, now time.Time) (time.Time, bool, error) {
 	return time.Date(date.Year(), date.Month(), date.Day(), hour, minute, 0, 0, loc), false, nil
 }
 
-// ParseLength reads a Length line: a duration for a timed meeting, days
+// ParseClock reads a time of day: "10:00", "9", "2pm", "2:30 pm",
+// "14.30" or "1430".
+func ParseClock(s string) (hour, minute int, err error) {
+	v := strings.ToLower(strings.Join(strings.Fields(s), ""))
+	if len(v) >= 3 && len(v) <= 4 && strings.Trim(v, "0123456789") == "" {
+		v = v[:len(v)-2] + ":" + v[len(v)-2:]
+	}
+	m := clockTime.FindStringSubmatch(v)
+	if m == nil {
+		return 0, 0, fmt.Errorf("%q isn't a time, e.g. 10:00 or 2pm", s)
+	}
+	h, _ := strconv.Atoi(m[1])
+	mi, _ := strconv.Atoi(m[2])
+	if m[3] != "" {
+		if h < 1 || h > 12 {
+			return 0, 0, fmt.Errorf("%q isn't a time", s)
+		}
+		h %= 12
+		if m[3] == "pm" {
+			h += 12
+		}
+	}
+	if h > 23 || mi > 59 {
+		return 0, 0, fmt.Errorf("%q isn't a time", s)
+	}
+	return h, mi, nil
+}
+
+// ParseLength reads a meeting's length: a duration for a timed meeting, days
 // for an all-day one.
 func ParseLength(s string, allDay bool) (time.Duration, int, error) {
 	v := strings.ToLower(strings.Join(strings.Fields(s), ""))

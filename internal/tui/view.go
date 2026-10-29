@@ -186,8 +186,10 @@ func (m *Model) View() tea.View {
 		lines = append(lines, padLines(strings.Split(m.viewer.vp.View(), "\n"), m.width, g.bodyH)...)
 	case m.composing != nil:
 		lines = append(lines, m.composeLines(m.width, g.bodyH)...)
-	case m.planning != nil:
+	case m.planning != nil && m.planning.reviewing:
 		lines = append(lines, m.planLines(m.width, g.bodyH)...)
+	case m.planning != nil:
+		lines = append(lines, m.formLines(m.width, g.bodyH)...)
 	case m.agenda != nil:
 		lines = append(lines, m.agendaLines(m.width, g.bodyH)...)
 	case m.reading:
@@ -479,8 +481,10 @@ func (m *Model) bottomBar() string {
 		hints = "j/k scroll  space/- page  s save  o open in its app  q back"
 	case m.composing != nil:
 		hints = "y send  d save to Drafts  e edit again  a attach a file  q discard"
+	case m.planning != nil && m.planning.reviewing:
+		hints = "y send  e back to the form  q discard"
 	case m.planning != nil:
-		hints = "y send  e edit again  q discard"
+		hints = m.formHints()
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  c calendar  g top"
 	case m.agenda != nil:
@@ -574,7 +578,8 @@ func (m *Model) helpLines() []string {
 		"    O                 open the meeting's Teams or Zoom link",
 		"    I                 answer (a recurring meeting: the whole series), or remove",
 		"                      a cancelled meeting",
-		"    n                 plan a new meeting (in $EDITOR, like mail; y sends the invites)",
+		"    n                 plan a new meeting: a form (tab between fields, a date picker,",
+		"                      suggestions as you type a name), ctrl+s to review, y sends",
 		"    e / D             change / cancel a meeting you organized (everyone invited",
 		"                      gets the update or cancellation); a recurring one asks which",
 		"    marks             ? not answered  ~ tentative  ◦ online; faint: past, declined",

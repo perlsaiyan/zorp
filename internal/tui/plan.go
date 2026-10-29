@@ -22,23 +22,24 @@ import (
 )
 
 // Meetings the user organizes: n (calendar) and M (mail) plan a new one,
-// e changes one, D cancels one. Like mail, a meeting is written in the
-// editor (package meeting) and sent from a review screen.
+// e changes one, D cancels one. A meeting is filled in on a form
+// (meetingform.go) and sent from a review screen.
 
-// planning is a meeting being written. While it is set (and the editor
-// isn't running) the review screen is shown.
+// planning is a meeting being written: the form, then (reviewing) the
+// review screen.
 type planning struct {
-	edit     *ipc.EventDetail // the meeting being changed; nil for a new one
-	series   bool             // edit is a whole recurring series: no times
-	htmlBody bool             // edit's description had formatting
-	path     string
-	template string
-	orig     meeting.Plan // the file as first written, parsed
-	plan     meeting.Plan
-	problems []string
-	busy     string
+	edit      *ipc.EventDetail // the meeting being changed; nil for a new one
+	series    bool             // edit is a whole recurring series: no times
+	htmlBody  bool             // edit's description had formatting
+	form      *meetingForm
+	reviewing bool
+	path      string       // the description file, while $EDITOR has it
+	orig      meeting.Plan // the meeting as it was (edit), or the form as it started
+	plan      meeting.Plan // the form's, as reviewed
+	problems  []string
+	busy      string
 
-	// Invitees' free/busy during the meeting, looked up after each edit.
+	// Invitees' free/busy during the meeting, looked up for each review.
 	fbKey  string // what fb is for: the people and times
 	fb     []ipc.FreeBusy
 	fbErr  string
@@ -47,12 +48,10 @@ type planning struct {
 
 type (
 	planReadyMsg struct {
-		p    *planning
-		text string
-		err  error
+		p   *planning
+		err error
 	}
-	planEditorDoneMsg struct{ err error }
-	planDoneMsg       struct {
+	planDoneMsg struct {
 		res ipc.EventSaveResult
 		new bool
 		err error
@@ -97,8 +96,8 @@ func (m *Model) planNew(seed meeting.Plan) tea.Cmd {
 		seed.Length = 30 * time.Minute
 	}
 	seed.Teams = m.cfg.Calendar.Teams
-	p := &planning{}
-	return func() tea.Msg { return planReadyMsg{p: p, text: meeting.File(seed, meeting.FileOptions{})} }
+	m.planning = &planning{form: newForm(seed, false), orig: seed}
+	return m.loadContacts()
 }
 
 // planFromMessage is M: a meeting with the current message's people,
@@ -162,9 +161,10 @@ func editReady(ev ipc.EventDetail, series bool) planReadyMsg {
 	if ev.BodyType == "html" {
 		body = store.Body{Type: "html", HTML: ev.Body}
 	}
-	pl.Description = withoutJoinBlock(parseBody(body).Text(quoteWidth))
-	p := &planning{edit: &ev, series: series, htmlBody: ev.BodyType == "html"}
-	return planReadyMsg{p: p, text: meeting.File(pl, meeting.FileOptions{Editing: true, NoTime: series})}
+	pl.Description = normDesc(withoutJoinBlock(parseBody(body).Text(quoteWidth)))
+	pl.Subject, pl.Where = strings.TrimSpace(pl.Subject), strings.TrimSpace(pl.Where)
+	p := &planning{edit: &ev, series: series, htmlBody: ev.BodyType == "html", form: newForm(pl, series), orig: pl}
+	return planReadyMsg{p: p}
 }
 
 // withoutJoinBlock drops the Teams join details Exchange adds to a
@@ -186,75 +186,11 @@ func (m *Model) planReady(r planReadyMsg) tea.Cmd {
 		m.errText = r.err.Error()
 		return nil
 	}
-	dir := m.cfg.Paths.ComposeDir
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		m.errText = err.Error()
+	if m.planning != nil || m.composing != nil {
 		return nil
 	}
-	f, err := os.CreateTemp(dir, "meeting-"+time.Now().Format("20060102-150405")+"-*.txt")
-	if err == nil {
-		_, err = f.WriteString(r.text)
-		if cerr := f.Close(); err == nil {
-			err = cerr
-		}
-	}
-	if err != nil {
-		m.errText = "writing the meeting file: " + err.Error()
-		return nil
-	}
-	r.p.path, r.p.template = f.Name(), r.text
-	r.p.orig, _ = meeting.Parse(r.text, m.now())
 	m.planning = r.p
-	return m.planEditCmd()
-}
-
-func (m *Model) planEditCmd() tea.Cmd {
-	return tea.ExecProcess(editorCommand(m.cfg, m.planning.path), func(err error) tea.Msg { return planEditorDoneMsg{err} })
-}
-
-// planEditorDone reads the file back and shows the review screen.
-func (m *Model) planEditorDone(err error) tea.Cmd {
-	p := m.planning
-	if p == nil {
-		return nil
-	}
-	if err != nil {
-		m.errText = "editor: " + err.Error() + " (set compose.editor or $EDITOR)"
-	}
-	data, rerr := os.ReadFile(p.path)
-	if rerr != nil {
-		m.errText = rerr.Error()
-		m.endPlan()
-		return nil
-	}
-	if string(data) == p.template && err == nil {
-		m.endPlan()
-		if p.edit != nil {
-			m.notice = "No changes."
-		} else {
-			m.notice = "Nothing written; discarded."
-		}
-		return nil
-	}
-	p.problems = nil
-	pl, perr := meeting.Parse(string(data), m.now())
-	p.plan = pl
-	if perr != nil {
-		p.problems = append(p.problems, perr.Error())
-	}
-	if strings.TrimSpace(pl.Subject) == "" {
-		p.problems = append(p.problems, "Subject: the meeting needs one")
-	}
-	if pl.Start.IsZero() && !p.series {
-		p.problems = append(p.problems, "When: give the day (and time) of the meeting")
-	}
-	if !pl.Start.IsZero() && p.series {
-		p.problems = append(p.problems, "When: a recurring series' times can't be changed here; take the When line out")
-	}
-	if p.edit != nil && p.edit.Online && !pl.Teams {
-		p.problems = append(p.problems, "Teams: the Teams meeting can't be taken off again")
-	}
-	return m.loadFreeBusy()
+	return m.loadContacts()
 }
 
 // fbAddrs are the invitees whose free/busy the review screen shows: all
@@ -399,9 +335,9 @@ func (m *Model) planKey(key string) tea.Cmd {
 			err := callDaemon(ctx, cfg, ipc.MethodEventSave, params, &res)
 			return planDoneMsg{res: res, new: isNew, err: err}
 		}
-	case "e":
-		return m.planEditCmd()
-	case "q", "esc":
+	case "e", "esc":
+		p.reviewing = false
+	case "q":
 		m.confirm = &confirm{prompt: "Discard this meeting? y/n", cmd: func() tea.Msg { return planDiscardMsg{} }}
 	}
 	return nil

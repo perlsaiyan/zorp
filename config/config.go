@@ -25,12 +25,21 @@ type Config struct {
 	MCP      MCP      `toml:"mcp"`
 	Notify   Notify   `toml:"notify"`
 	Calendar Calendar `toml:"calendar"`
+	Contacts Contacts `toml:"contacts"`
 	// Theme overrides colours by role (see README: Colours), e.g.
 	// accent = "#89b4fa" or selected = "magenta".
 	Theme map[string]string `toml:"theme"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
+}
+
+// Contacts configures looking people up while writing.
+type Contacts struct {
+	// Directory asks at sign-in for People.Read and User.ReadBasic.All,
+	// to suggest people from the organization's directory as well as
+	// those already in the mail cache.
+	Directory bool `toml:"directory"`
 }
 
 // Calendar configures meeting invites and the calendar.
@@ -289,6 +298,7 @@ func defaults() Config {
 		Compose:  Compose{Format: "markdown"},
 		Notify:   Notify{Enabled: true, Method: "auto", Folders: []string{"inbox"}, ShowContent: true, GroupAfter: 3},
 		Calendar: Calendar{Enabled: true, AfterRespond: "archive", Remind: 10 * time.Minute, Teams: true},
+		Contacts: Contacts{Directory: true},
 	}
 }
 

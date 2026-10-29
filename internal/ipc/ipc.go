@@ -34,6 +34,7 @@ const (
 	MethodEventSave   = "event-save"   // params: EventSaveParams; result: EventSaveResult
 	MethodEventCancel = "event-cancel" // params: EventCancelParams; result: EventCancelResult
 	MethodFreeBusy    = "free-busy"    // params: FreeBusyParams; result: []FreeBusy
+	MethodPeople      = "people"       // params: PeopleParams; result: []Person
 	MethodSubscribe   = "subscribe"
 	MethodShutdown    = "shutdown"
 )
@@ -213,6 +214,19 @@ type Busy struct {
 	Start  time.Time `json:"start"`
 	End    time.Time `json:"end"`
 	Status string    `json:"status"` // tentative, busy, oof, workingElsewhere
+}
+
+// PeopleParams looks people up in the directory.
+type PeopleParams struct {
+	Query string `json:"query"`
+	Top   int    `json:"top,omitempty"`
+}
+
+// Person is someone found in the directory.
+type Person struct {
+	Name  string `json:"name,omitempty"`
+	Addr  string `json:"addr"`
+	Title string `json:"title,omitempty"` // job title, department
 }
 
 type SyncParams struct {
