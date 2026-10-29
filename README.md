@@ -103,6 +103,7 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `e` | edit a draft (in Drafts) |
 | `V` | open an attachment (see [Attachments](#attachments)) |
 | `I` | answer a meeting invite, or remove a cancelled meeting (see [Meeting invites](#meeting-invites)) |
+| `M` | plan a meeting with the message's people, about its subject (see [Planning meetings](#planning-meetings)) |
 | `s` | save attachments (to `~/Downloads`; `ui.save_dir`; attached emails as `.eml`) |
 | `z` | show/hide quoted replies and signature |
 | `O` | pick a link and open it in the browser |
@@ -306,6 +307,9 @@ The daemon keeps a window of your calendar cached, from 30 days back to 180 days
 | `[` / `]` | previous / next week; `t` back to today |
 | `O` | open the meeting's Teams or Zoom link |
 | `I` | answer it, as for an invite (a recurring meeting is answered for the whole series), or remove it if it was cancelled |
+| `n` | plan a new meeting, on the selected meeting's day |
+| `e` | change a meeting you organized |
+| `D` | cancel a meeting you organized |
 | `q` | back to mail |
 
 Rows marked `?` aren't answered yet, `~` are tentative, and `◦` have a join link. Past, declined and cancelled meetings are faint.
@@ -316,6 +320,36 @@ Rows marked `?` aren't answered yet, `~` are tentative, and `◦` have a join li
 [calendar]
 remind = "10m"   # "0" turns reminders off
 ```
+
+### Planning meetings
+
+`n` in the calendar, or `M` on a message, opens a meeting file in your editor, the way mail is written. `M` starts with the message's sender and recipients invited and its subject:
+
+```
+Subject: Launch retro
+When: Fri 30 Oct 2026 10:00
+Length: 30m
+Invite: Priya Natarajan <priya@example.com>, dana@partner.example.org
+Optional:
+Where: Room 4
+Teams: yes
+
+What went well, and what we'd change.
+```
+
+- **When** is local time. These all work: `Fri 30 Oct 2026 10:00`, `2026-10-30 14:30`, `tomorrow 2pm`, `mon 9:30`, `30 Oct 10am`. A day with no time makes an all-day meeting, and its **Length** is then in days (`2d`).
+- **Teams: yes** adds a Teams link (`calendar.teams` sets the default).
+- **The description** is Markdown, like mail (`compose.format`).
+
+After the editor you get a review screen, which shows clashes with your calendar, mistakes in the file, and who will be mailed. Nothing is sent until you press `y`. Then Exchange sends the invites. A meeting with nobody else invited just goes on your calendar.
+
+**Changing a meeting** (`e`) works the same way, and everyone invited gets the update. Anyone you take off gets a cancellation. Only what you changed is sent. An unchanged description keeps its formatting and Teams details. Once a meeting has a Teams link, it can't be removed. On a recurring meeting, zorp asks whether you mean this occurrence or the whole series. For the whole series, the times can't be changed here.
+
+**Cancelling** (`D`) asks for an optional note, then for a y/n, and sends everyone the cancellation. A meeting with nobody else invited is simply deleted.
+
+Invites, updates and cancellations are all mail, so the send [guardrail](#safety-guardrails) applies to them. The AI tools can't create, change or cancel meetings.
+
+### zorp agenda
 
 `zorp agenda` lists what's coming up from the cache, so it works offline and returns at once:
 
@@ -364,7 +398,7 @@ zorp has three guardrails, off by default. Turn them on while trying zorp out, o
 
 | Guardrail | When on | Setting to lift it |
 |---|---|---|
-| send | mail can only be sent to yourself and to `send_allow` entries | `allow_send = true` |
+| send | mail can only be sent to yourself and to `send_allow` entries. This includes answers that tell an organizer, and invites, updates and cancellations for meetings you organize | `allow_send = true` |
 | move | moves and archive only go to `scratch_folder` | `allow_move = true` |
 | delete | deleting is refused | `allow_delete = true` |
 

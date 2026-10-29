@@ -186,6 +186,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, padLines(strings.Split(m.viewer.vp.View(), "\n"), m.width, g.bodyH)...)
 	case m.composing != nil:
 		lines = append(lines, m.composeLines(m.width, g.bodyH)...)
+	case m.planning != nil:
+		lines = append(lines, m.planLines(m.width, g.bodyH)...)
 	case m.agenda != nil:
 		lines = append(lines, m.agendaLines(m.width, g.bodyH)...)
 	case m.reading:
@@ -477,10 +479,12 @@ func (m *Model) bottomBar() string {
 		hints = "j/k scroll  space/- page  s save  o open in its app  q back"
 	case m.composing != nil:
 		hints = "y send  d save to Drafts  e edit again  a attach a file  q discard"
+	case m.planning != nil:
+		hints = "y send  e edit again  q discard"
 	case m.gPending:
 		hints = "go to: i inbox  s sent  d drafts  a archive  c calendar  g top"
 	case m.agenda != nil:
-		hints = "j/k move  [ ] weeks  t today  O join link  I answer  ? help  q back"
+		hints = "j/k move  [ ] weeks  t today  n new meeting  e edit  D cancel  O join  I answer  ? help  q back"
 	case m.reading:
 		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  V attachments  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
 	case len(m.selected) > 0 && m.focus == paneList:
@@ -543,6 +547,7 @@ func (m *Model) helpLines() []string {
 		"    e                 edit a draft (in Drafts)",
 		"    I                 answer a meeting invite (accept, tentative, decline), or",
 		"                      remove a cancelled meeting from your calendar",
+		"    M                 plan a meeting with the message's people, about its subject",
 		"    V                 open an attachment: text, PDFs (with pdftotext), attached",
 		"                      emails and images show here; others open in their app,",
 		"                      or are saved when there's no desktop (over SSH)",
@@ -569,6 +574,9 @@ func (m *Model) helpLines() []string {
 		"    O                 open the meeting's Teams or Zoom link",
 		"    I                 answer (a recurring meeting: the whole series), or remove",
 		"                      a cancelled meeting",
+		"    n                 plan a new meeting (in $EDITOR, like mail; y sends the invites)",
+		"    e / D             change / cancel a meeting you organized (everyone invited",
+		"                      gets the update or cancellation); a recurring one asks which",
 		"    marks             ? not answered  ~ tentative  ◦ online; faint: past, declined",
 		"",
 		"  Search  (all folders; words match prefixes, all must match)",

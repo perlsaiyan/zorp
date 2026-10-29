@@ -53,7 +53,7 @@ func (g *calendarGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func newMeetingDaemon(t *testing.T, cfg *config.Config, g *calendarGraph) *daemon {
+func newMeetingDaemon(t *testing.T, cfg *config.Config, g http.Handler) *daemon {
 	t.Helper()
 	ctx := context.Background()
 	srv := httptest.NewServer(g)

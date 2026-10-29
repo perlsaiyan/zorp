@@ -71,7 +71,7 @@ func (r buttonRow) at(line, x int) (button, bool) {
 // clickButton presses the preview button at screen cell x, y, if there
 // is one there.
 func (m *Model) clickButton(x, y int) (tea.Cmd, bool) {
-	if len(m.buttons.buttons) == 0 || m.help || m.picker != nil || m.confirm != nil || m.prompt != nil || m.composing != nil {
+	if len(m.buttons.buttons) == 0 || m.help || m.picker != nil || m.confirm != nil || m.prompt != nil || m.composing != nil || m.planning != nil {
 		return nil, false
 	}
 	g := m.geom()

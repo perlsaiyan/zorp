@@ -10,6 +10,7 @@ import (
 
 	"github.com/perlsaiyan/zorp/internal/agenda"
 	"github.com/perlsaiyan/zorp/internal/ipc"
+	"github.com/perlsaiyan/zorp/internal/meeting"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
 
@@ -111,6 +112,19 @@ func (m *Model) agendaKey(key string) tea.Cmd {
 		}
 	case "I":
 		return m.answerEvent()
+	case "n":
+		day := a.from
+		if e, ok := a.current(); ok {
+			day = e.Start
+		}
+		if localDay(day).Before(localDay(m.now())) {
+			day = m.now()
+		}
+		return m.planNew(meeting.Plan{Start: m.nextSlot(day)})
+	case "e":
+		return m.editEvent()
+	case "D":
+		return m.cancelEvent()
 	}
 	return nil
 }

@@ -8,29 +8,33 @@ package ipc
 
 import (
 	"encoding/json"
+	"time"
 )
 
 // Methods understood by the daemon.
 const (
-	MethodStatus     = "status"
-	MethodSync       = "sync"
-	MethodReloadAuth = "reload-auth"
-	MethodFetchBody  = "fetch-body"
-	MethodMutate     = "mutate"
-	MethodExportHTML = "export-html"
-	MethodSetSync    = "set-sync"
-	MethodSearch     = "search"
-	MethodCompose    = "compose"
-	MethodGetDraft   = "get-draft"
-	MethodAttachList = "attachments"
-	MethodSaveAttach = "save-attachment"
-	MethodImages     = "images"
-	MethodOpenAttach = "open-attachment"
-	MethodNotifyTest = "notify-test" // result: NotifyTestResult
-	MethodMeeting    = "meeting"     // params: MessageRef; result: MeetingInfo
-	MethodRespond    = "respond"     // params: RespondParams; result: RespondResult
-	MethodSubscribe  = "subscribe"
-	MethodShutdown   = "shutdown"
+	MethodStatus      = "status"
+	MethodSync        = "sync"
+	MethodReloadAuth  = "reload-auth"
+	MethodFetchBody   = "fetch-body"
+	MethodMutate      = "mutate"
+	MethodExportHTML  = "export-html"
+	MethodSetSync     = "set-sync"
+	MethodSearch      = "search"
+	MethodCompose     = "compose"
+	MethodGetDraft    = "get-draft"
+	MethodAttachList  = "attachments"
+	MethodSaveAttach  = "save-attachment"
+	MethodImages      = "images"
+	MethodOpenAttach  = "open-attachment"
+	MethodNotifyTest  = "notify-test"  // result: NotifyTestResult
+	MethodMeeting     = "meeting"      // params: MessageRef; result: MeetingInfo
+	MethodRespond     = "respond"      // params: RespondParams; result: RespondResult
+	MethodEventGet    = "event-get"    // params: EventRef; result: EventDetail
+	MethodEventSave   = "event-save"   // params: EventSaveParams; result: EventSaveResult
+	MethodEventCancel = "event-cancel" // params: EventCancelParams; result: EventCancelResult
+	MethodSubscribe   = "subscribe"
+	MethodShutdown    = "shutdown"
 )
 
 // Events pushed to subscribers.
@@ -125,6 +129,68 @@ type RespondResult struct {
 	After string `json:"after,omitempty"`
 	// AfterError is why that failed, when it did; the answer itself went through.
 	AfterError string `json:"after_error,omitempty"`
+}
+
+type EventRef struct {
+	ID string `json:"id"`
+}
+
+// EventDetail is a calendar event as the meeting editor needs it.
+type EventDetail struct {
+	ID             string    `json:"id"`
+	Type           string    `json:"type"` // singleInstance, occurrence, exception, seriesMaster
+	SeriesMasterID string    `json:"series_master_id,omitempty"`
+	Subject        string    `json:"subject"`
+	Start          time.Time `json:"start"`
+	End            time.Time `json:"end"`
+	AllDay         bool      `json:"all_day,omitempty"`
+	Location       string    `json:"location,omitempty"`
+	Required       []Address `json:"required,omitempty"`
+	Optional       []Address `json:"optional,omitempty"`
+	Online         bool      `json:"online,omitempty"`
+	JoinURL        string    `json:"join_url,omitempty"`
+	BodyType       string    `json:"body_type,omitempty"` // text or html
+	Body           string    `json:"body,omitempty"`
+	IsOrganizer    bool      `json:"is_organizer,omitempty"`
+	Cancelled      bool      `json:"cancelled,omitempty"`
+}
+
+// Attendees is who's invited to a meeting.
+type Attendees struct {
+	Required []Address `json:"required,omitempty"`
+	Optional []Address `json:"optional,omitempty"`
+}
+
+// EventSaveParams creates a meeting (no ID) or changes one the user
+// organized. Nil fields are left as they are; a new meeting needs a
+// subject and times. Everyone invited gets the invite or the update.
+type EventSaveParams struct {
+	ID        string     `json:"id,omitempty"`
+	Subject   *string    `json:"subject,omitempty"`
+	Start     *time.Time `json:"start,omitempty"`
+	End       *time.Time `json:"end,omitempty"`
+	AllDay    *bool      `json:"all_day,omitempty"`
+	Location  *string    `json:"location,omitempty"`
+	Attendees *Attendees `json:"attendees,omitempty"`
+	Online    *bool      `json:"online,omitempty"` // add a Teams meeting
+	Body      *string    `json:"body,omitempty"`
+	Format    string     `json:"format,omitempty"` // the body's: markdown (sent as HTML) or text
+}
+
+type EventSaveResult struct {
+	ID       string `json:"id"`
+	JoinURL  string `json:"join_url,omitempty"`
+	Notified int    `json:"notified"` // people sent the invite or update
+}
+
+// EventCancelParams cancels a meeting the user organized.
+type EventCancelParams struct {
+	ID      string `json:"id"`
+	Comment string `json:"comment,omitempty"` // to the attendees
+}
+
+type EventCancelResult struct {
+	Notified int `json:"notified"` // 0: nobody else was invited, so it was just deleted
 }
 
 type SyncParams struct {

@@ -99,6 +99,7 @@ type Model struct {
 	meeting    *meetingState              // the calendar's side of the previewed invite
 	buttons    buttonRow                  // clickable buttons in the preview
 	agenda     *agendaView                // the calendar (g c), when open
+	planning   *planning                  // a meeting being written
 	clock      func() time.Time           // for tests; nil means time.Now
 	promptDone func(string) tea.Cmd       // what Enter does in a prompt that isn't search
 	convAnchor int                        // line of conv's first unread message
@@ -313,6 +314,24 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case composeDoneMsg:
 		return m, m.composeDone(msg)
 
+	case planReadyMsg:
+		return m, m.planReady(msg)
+
+	case planEditorDoneMsg:
+		return m, m.planEditorDone(msg.err)
+
+	case planDoneMsg:
+		return m, m.planDone(msg)
+
+	case planDiscardMsg:
+		m.endPlan()
+		m.notice = "Discarded."
+		return m, nil
+
+	case eventCancelledMsg:
+		m.eventCancelled(msg)
+		return m, nil
+
 	case composeDiscardMsg:
 		m.endCompose()
 		m.notice = "Discarded."
@@ -509,7 +528,7 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		return tea.Quit
 	}
 	m.errText = ""
-	if m.composing == nil || m.composing.busy == "" {
+	if (m.composing == nil || m.composing.busy == "") && (m.planning == nil || m.planning.busy == "") {
 		m.notice = ""
 	}
 	if m.help {
@@ -536,6 +555,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 	}
 	if m.composing != nil {
 		return m.composeKey(key)
+	}
+	if m.planning != nil {
+		return m.planKey(key)
 	}
 
 	if m.gPending {
@@ -812,6 +834,8 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		return m.listAttachmentsCmd(true), true
 	case "I":
 		return m.meetingKey(), true
+	case "M":
+		return m.planFromMessage(), true
 	}
 	return nil, false
 }
@@ -819,7 +843,7 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 // showMessage puts the cursor on a message (a clicked notification): in
 // the current list if it's there, else in its folder.
 func (m *Model) showMessage(graphID string) tea.Cmd {
-	if m.composing != nil {
+	if m.composing != nil || m.planning != nil {
 		return nil // don't pull the review screen away
 	}
 	find := func() bool {

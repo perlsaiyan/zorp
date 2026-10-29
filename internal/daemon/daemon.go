@@ -503,6 +503,12 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return d.meetingInfo(ctx, params)
 	case ipc.MethodRespond:
 		return d.respond(ctx, params)
+	case ipc.MethodEventGet:
+		return d.eventGet(ctx, params)
+	case ipc.MethodEventSave:
+		return d.eventSave(ctx, params)
+	case ipc.MethodEventCancel:
+		return d.eventCancel(ctx, params)
 	case ipc.MethodOpenAttach:
 		return d.openAttachment(ctx, params)
 	case ipc.MethodSaveAttach:

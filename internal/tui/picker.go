@@ -23,6 +23,7 @@ const (
 	pickOpen
 	pickFile
 	pickAnswer
+	pickAction // each choice runs its own action
 )
 
 // choice is one row in a picker.
@@ -35,8 +36,9 @@ type choice struct {
 	attIDs   []string
 	att      ipc.AttachmentInfo
 	path     string
-	answer   string // pickAnswer: ipc.Answer*
-	send     bool   // pickAnswer: tell the organizer
+	answer   string         // pickAnswer: ipc.Answer*
+	send     bool           // pickAnswer: tell the organizer
+	run      func() tea.Cmd // pickAction
 }
 
 // picker is a type-to-filter chooser, used for "move to folder" and
@@ -135,6 +137,8 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 				return m.attachFile(c.path)
 			case pickAnswer:
 				return m.answerPicked(p, c)
+			case pickAction:
+				return c.run()
 			}
 			if len(p.moving) == 1 {
 				m.leaving = p.moving[0]

@@ -82,6 +82,8 @@ type Event struct {
 	OnlineMeeting     *struct {
 		JoinURL string `json:"joinUrl"`
 	} `json:"onlineMeeting"`
+	IsOnlineMeeting bool      `json:"isOnlineMeeting"`
+	Body            *ItemBody `json:"body"` // only when asked for (EventForEdit)
 
 	// Removed is set on delta items for events that left the window.
 	Removed *struct {
@@ -215,4 +217,108 @@ func (c *Client) RespondToEvent(ctx context.Context, eventID, answer, comment st
 // someone else organized and has cancelled, this sends nothing.
 func (c *Client) DeleteEvent(ctx context.Context, eventID string) error {
 	return c.do(ctx, http.MethodDelete, "/me/events/"+url.PathEscape(eventID), nil, nil)
+}
+
+// EventForEdit fetches an event with everything the meeting file shows,
+// its description included.
+func (c *Client) EventForEdit(ctx context.Context, id string) (*Event, error) {
+	var e Event
+	sel := eventSelect + ",type,seriesMasterId,attendees,isOnlineMeeting,body"
+	if err := c.get(ctx, "/me/events/"+url.PathEscape(id)+"?$select="+sel, &e, preferUTC); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// EventChange is what to set on an event. Nil fields are left as they are.
+type EventChange struct {
+	Subject    *string
+	Start, End *time.Time
+	AllDay     *bool
+	// Zone is the IANA time zone Start and End are given in (and the
+	// meeting is shown in); UTC if empty. All-day events start and end at
+	// midnight in it.
+	Zone      string
+	Location  *string
+	Attendees *[]Attendee // everyone invited, the whole list
+	Online    *bool       // add a Teams meeting
+	Body      *string
+	BodyHTML  bool
+}
+
+func (ch EventChange) payload() map[string]any {
+	out := map[string]any{}
+	zone := ch.Zone
+	if zone == "" {
+		zone = "UTC"
+	}
+	at := func(t time.Time) DateTimeTimeZone {
+		if loc, err := time.LoadLocation(zone); err == nil {
+			t = t.In(loc)
+		}
+		return DateTimeTimeZone{DateTime: t.Format("2006-01-02T15:04:05"), TimeZone: zone}
+	}
+	if ch.Subject != nil {
+		out["subject"] = *ch.Subject
+	}
+	if ch.Start != nil {
+		out["start"] = at(*ch.Start)
+	}
+	if ch.End != nil {
+		out["end"] = at(*ch.End)
+	}
+	if ch.AllDay != nil {
+		out["isAllDay"] = *ch.AllDay
+	}
+	if ch.Location != nil {
+		out["location"] = Location{DisplayName: *ch.Location}
+	}
+	if ch.Attendees != nil {
+		as := make([]map[string]any, 0, len(*ch.Attendees))
+		for _, a := range *ch.Attendees {
+			as = append(as, map[string]any{"emailAddress": a.EmailAddress, "type": a.Type})
+		}
+		out["attendees"] = as
+	}
+	if ch.Online != nil {
+		out["isOnlineMeeting"] = *ch.Online
+		if *ch.Online {
+			out["onlineMeetingProvider"] = "teamsForBusiness"
+		}
+	}
+	if ch.Body != nil {
+		ct := "text"
+		if ch.BodyHTML {
+			ct = "html"
+		}
+		out["body"] = ItemBody{ContentType: ct, Content: *ch.Body}
+	}
+	return out
+}
+
+// CreateEvent puts a new event on the user's calendar. If it has
+// attendees, Exchange sends them the invitation. Never retried after an
+// ambiguous failure, so nobody gets two invites.
+func (c *Client) CreateEvent(ctx context.Context, ch EventChange) (*Event, error) {
+	var e Event
+	if err := c.postOnce(ctx, "/me/events", ch.payload(), &e); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
+// UpdateEvent changes an event the user organized. Exchange sends the
+// attendees an update (and a cancellation to anyone taken off it).
+func (c *Client) UpdateEvent(ctx context.Context, id string, ch EventChange) error {
+	return c.doRetry(ctx, false, http.MethodPatch, "/me/events/"+url.PathEscape(id), ch.payload(), nil)
+}
+
+// CancelEvent cancels a meeting the user organized: the attendees get a
+// cancellation, with comment, and it leaves the calendar.
+func (c *Client) CancelEvent(ctx context.Context, id, comment string) error {
+	body := map[string]any{}
+	if comment != "" {
+		body["comment"] = comment
+	}
+	return c.postOnce(ctx, "/me/events/"+url.PathEscape(id)+"/cancel", body, nil)
 }

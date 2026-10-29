@@ -195,6 +195,13 @@ func Parse(text string) (Message, error) {
 	return m, nil
 }
 
+// ParseAddresses reads a comma- (or semicolon-) separated address list,
+// as written in a header line.
+func ParseAddresses(value string) ([]store.Address, error) { return appendAddresses(nil, value) }
+
+// OneLine makes text safe for a header line in the editor.
+func OneLine(s string) string { return oneLine(s) }
+
 func appendAddresses(to []store.Address, value string) ([]store.Address, error) {
 	value = strings.Trim(strings.ReplaceAll(value, ";", ","), " ,")
 	if value == "" {
@@ -360,6 +367,32 @@ func prefixed(prefix, subject string) string {
 		}
 	}
 	return prefix + s
+}
+
+// BareSubject is a subject without its gateway tags and "Re:" or "Fw:"
+// prefixes, e.g. for a meeting about the message.
+func BareSubject(subject string) string {
+	s := strings.TrimSpace(subject)
+	for {
+		rest := s
+		if strings.HasPrefix(rest, "[") {
+			if end := strings.Index(rest, "]"); end >= 0 {
+				rest = rest[end+1:]
+			}
+		}
+		lower := strings.ToLower(rest)
+		for _, p := range []string{"re:", "fw:", "fwd:"} {
+			if strings.HasPrefix(lower, p) {
+				rest = rest[len(p):]
+				break
+			}
+		}
+		rest = strings.TrimSpace(rest)
+		if rest == s {
+			return s
+		}
+		s = rest
+	}
 }
 
 func prefixesFor(prefix string) []string {

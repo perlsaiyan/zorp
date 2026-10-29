@@ -12,6 +12,7 @@ tenant = "organizations"
 [calendar]
 after_respond = "archive"   # what happens to an invite once answered: archive, delete or keep
 remind = "10m"              # meeting reminders, through [notify]; "0" turns them off
+teams = true                # new meetings get a Teams link (the meeting file's Teams: line overrides)
 
 [notify]
 click_command = "zorp-focus"
