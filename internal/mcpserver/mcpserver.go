@@ -53,9 +53,12 @@ func New(cfg *config.Config, st *store.Store, account store.Account, call CallFu
 		}
 	}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "zorp", Title: "zorp mail", Version: Version}, &mcp.ServerOptions{
-		Instructions: instructions(cfg.MCP.AllowWrites),
+		Instructions: instructions(cfg.MCP.AllowWrites, cfg.Calendar.Enabled),
 	})
 	s.addReadTools(srv)
+	if cfg.Calendar.Enabled {
+		s.addCalendarTools(srv)
+	}
 	if cfg.MCP.AllowWrites {
 		s.addWriteTools(srv)
 	}
@@ -64,9 +67,12 @@ func New(cfg *config.Config, st *store.Store, account store.Account, call CallFu
 
 var errDaemon = errors.New("the zorp daemon isn't running; start zorp (or `zorp daemon start`) and try again")
 
-func instructions(writes bool) string {
+func instructions(writes, calendar bool) string {
 	s := "Access to the user's Microsoft 365 mailbox, as cached by zorp. " + untrustedNote +
 		" Message IDs are stable: use the id from search_messages or list_unread with get_message and get_thread."
+	if calendar {
+		s += " list_events and get_event read the cached calendar; nothing can answer or create meetings."
+	}
 	if writes {
 		s += " Write tools can create drafts and mark, flag or move messages. Nothing can send mail: drafts are saved for the user to review and send in zorp."
 	} else {

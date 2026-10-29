@@ -2,6 +2,8 @@ package graph
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -50,9 +52,23 @@ type ResponseStatus struct {
 	Response string `json:"response"`
 }
 
+// Attendee is someone invited to an event.
+type Attendee struct {
+	EmailAddress EmailAddress   `json:"emailAddress"`
+	Type         string         `json:"type"` // required, optional, resource
+	Status       ResponseStatus `json:"status"`
+}
+
 // Event is a calendar item, as far as zorp uses it.
 type Event struct {
 	ID                string           `json:"id"`
+	Type              string           `json:"type"` // singleInstance, occurrence, exception, seriesMaster
+	SeriesMasterID    string           `json:"seriesMasterId"`
+	ICalUID           string           `json:"iCalUId"`
+	ShowAs            string           `json:"showAs"` // free, tentative, busy, oof, workingElsewhere
+	BodyPreview       string           `json:"bodyPreview"`
+	WebLink           string           `json:"webLink"`
+	Attendees         []Attendee       `json:"attendees"`
 	Subject           string           `json:"subject"`
 	Start             DateTimeTimeZone `json:"start"`
 	End               DateTimeTimeZone `json:"end"`
@@ -66,6 +82,11 @@ type Event struct {
 	OnlineMeeting     *struct {
 		JoinURL string `json:"joinUrl"`
 	} `json:"onlineMeeting"`
+
+	// Removed is set on delta items for events that left the window.
+	Removed *struct {
+		Reason string `json:"reason"`
+	} `json:"@removed"`
 }
 
 // JoinURL is the Teams (or other online meeting) link, if any.
@@ -96,6 +117,54 @@ func (c *Client) TodayEventCount(ctx context.Context) (int, error) {
 	}
 	err := c.get(ctx, "/me/calendarView?"+q.Encode(), &page, preferUTC)
 	return len(page.Value), err
+}
+
+// EventPage is one page of a calendarView delta pass. Occurrences of a
+// series come with only their id, type, times and seriesMasterId; the
+// rest is the series master's.
+type EventPage struct {
+	Events    []Event
+	Removed   []string
+	NextLink  string
+	DeltaLink string
+}
+
+// CalendarDeltaURL starts a delta pass over the calendar between start and
+// end. Its delta links only ever cover that window.
+func (c *Client) CalendarDeltaURL(start, end time.Time) string {
+	q := url.Values{
+		"startDateTime": {start.UTC().Format(time.RFC3339)},
+		"endDateTime":   {end.UTC().Format(time.RFC3339)},
+	}
+	return c.baseURL + "/me/calendarView/delta?" + q.Encode()
+}
+
+// EventsDelta fetches one page of a calendar delta pass.
+func (c *Client) EventsDelta(ctx context.Context, link string) (*EventPage, error) {
+	var raw struct {
+		Value     []json.RawMessage `json:"value"`
+		NextLink  string            `json:"@odata.nextLink"`
+		DeltaLink string            `json:"@odata.deltaLink"`
+	}
+	if err := c.get(ctx, link, &raw, "odata.maxpagesize=100", preferUTC); err != nil {
+		return nil, err
+	}
+	page := &EventPage{NextLink: raw.NextLink, DeltaLink: raw.DeltaLink}
+	for _, item := range raw.Value {
+		var e Event
+		if err := json.Unmarshal(item, &e); err != nil {
+			return nil, fmt.Errorf("graph: calendar delta item: %w", err)
+		}
+		if e.Removed != nil {
+			page.Removed = append(page.Removed, e.ID)
+		} else {
+			page.Events = append(page.Events, e)
+		}
+	}
+	if page.NextLink == "" && page.DeltaLink == "" {
+		return nil, errors.New("graph: calendar delta page has neither nextLink nor deltaLink")
+	}
+	return page, nil
 }
 
 // MessageEvent returns the calendar event a meeting message is about, or

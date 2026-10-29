@@ -236,4 +236,29 @@ ALTER TABLE attachments ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
 ALTER TABLE messages ADD COLUMN meeting_json TEXT NOT NULL DEFAULT '';
 UPDATE folders SET delta_link = '';
 `,
+	// 8: the calendar, as a window kept in sync with calendarView delta.
+	// Occurrences of a series keep only their times; their details are
+	// the series master's (details_json '').
+	`
+CREATE TABLE events (
+	id               INTEGER PRIMARY KEY,
+	account_id       INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+	graph_id         TEXT NOT NULL,
+	type             TEXT NOT NULL DEFAULT '',
+	series_master_id TEXT NOT NULL DEFAULT '',
+	start_at         INTEGER NOT NULL,
+	end_at           INTEGER NOT NULL,
+	details_json     TEXT NOT NULL DEFAULT '',
+	UNIQUE (account_id, graph_id)
+);
+CREATE INDEX events_start ON events (account_id, start_at);
+CREATE INDEX events_master ON events (account_id, series_master_id);
+CREATE TABLE calendar_sync (
+	account_id   INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+	delta_link   TEXT NOT NULL DEFAULT '',
+	window_start INTEGER NOT NULL DEFAULT 0,
+	window_end   INTEGER NOT NULL DEFAULT 0,
+	synced_at    INTEGER NOT NULL DEFAULT 0
+);
+`,
 }

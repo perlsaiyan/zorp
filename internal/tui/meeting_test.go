@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -89,3 +90,21 @@ func TestIOnPlainMail(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestInviteClashes(t *testing.T) {
+	m := newTestModel(t)
+	ctx := context.Background()
+	at := time.Date(2026, 11, 3, 14, 0, 0, 0, time.UTC)
+	window := [2]time.Time{at.AddDate(0, 0, -30), at.AddDate(0, 0, 180)}
+	busy := store.EventDetails{Subject: "Standup", Response: "accepted", ShowAs: "busy"}
+	m.st.ApplyEvents(ctx, m.account.ID, true, []store.Event{
+		{GraphID: "own", Type: "singleInstance", Start: at, End: at.Add(time.Hour), Details: store.EventDetails{Subject: "The invite itself", ShowAs: "tentative"}},
+		{GraphID: "a", Type: "singleInstance", Start: at.Add(30 * time.Minute), End: at.Add(90 * time.Minute), Details: busy},
+		{GraphID: "b", Type: "singleInstance", Start: at.Add(-time.Hour), End: at, Details: busy}, // ends as it starts
+		{GraphID: "c", Type: "singleInstance", Start: at, End: at.Add(time.Hour), Details: store.EventDetails{Subject: "Gym", ShowAs: "free"}},
+	}, nil, "", window, at)
+	got := clashes(ctx, m.st, m.account.ID, store.Meeting{Start: at, End: at.Add(time.Hour)}, "own")
+	if len(got) != 1 || !strings.HasSuffix(got[0], "Standup") {
+		t.Errorf("clashes = %q", got)
+	}
+}

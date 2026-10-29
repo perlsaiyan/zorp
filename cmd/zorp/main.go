@@ -40,6 +40,8 @@ commands:
   probe [--send]                 check sign-in and permissions, list the 10 newest Inbox messages;
                                  --send also sends a test message to yourself
   search [--server] [-n N] QUERY search mail (same syntax as / in the TUI; --server searches Graph)
+  agenda [--days N] [--json | --waybar] [--all]
+                                 upcoming meetings from the cached calendar (--waybar: a Waybar module's JSON)
   sync [--full]                  sync now via the daemon (starting it if needed); --full rebuilds the cache
   daemon start                   start the sync daemon in the background (zorp and zorp sync do this for you)
   daemon status | stop           show the running daemon's state, or stop it
@@ -77,6 +79,8 @@ func main() {
 		err = runDaemon(ctx, args)
 	case "mcp":
 		err = runMCP(ctx)
+	case "agenda":
+		err = runAgenda(ctx, args)
 	case "notify-test":
 		err = runNotifyTest(ctx)
 	case "version", "--version", "-v":

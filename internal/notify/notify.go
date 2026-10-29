@@ -96,7 +96,7 @@ func Build(cfg config.Notify, msgs []store.Message) []Note {
 	case len(msgs) > max(cfg.GroupAfter, 1):
 		var lines []string
 		for _, m := range msgs[:3] {
-			subj, _ := untag(subject(m))
+			subj, _ := Untag(subject(m))
 			lines = append(lines, short(sender(m.From), 30)+": "+short(subj, 60))
 		}
 		if len(msgs) > 3 {
@@ -106,7 +106,7 @@ func Build(cfg config.Notify, msgs []store.Message) []Note {
 	}
 	var out []Note
 	for _, m := range msgs {
-		subj, external := untag(subject(m))
+		subj, external := Untag(subject(m))
 		title := short(sender(m.From), 60)
 		if external {
 			title += " (external)"
@@ -116,10 +116,10 @@ func Build(cfg config.Notify, msgs []store.Message) []Note {
 	return out
 }
 
-// untag drops the tags mail gateways put before external mail's subject
+// Untag drops the tags mail gateways put before external mail's subject
 // ("[EXTERNAL]", "[EXT]", "EXTERNAL:"), which would otherwise fill a
 // small notification. external reports whether there was one.
-func untag(subject string) (rest string, external bool) {
+func Untag(subject string) (rest string, external bool) {
 	for {
 		s := strings.TrimSpace(subject)
 		lower := strings.ToLower(s)

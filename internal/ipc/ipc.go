@@ -35,11 +35,12 @@ const (
 
 // Events pushed to subscribers.
 const (
-	EventStatus  = "status"  // data: Status
-	EventChanged = "changed" // data: Changed
-	EventError   = "error"   // data: ErrorEvent
-	EventNotify  = "notify"  // data: Notify; show it through the terminal
-	EventOpen    = "open"    // data: MessageRef; a notification was clicked
+	EventStatus   = "status"   // data: Status
+	EventChanged  = "changed"  // data: Changed
+	EventError    = "error"    // data: ErrorEvent
+	EventNotify   = "notify"   // data: Notify; show it through the terminal
+	EventOpen     = "open"     // data: MessageRef; a notification was clicked
+	EventCalendar = "calendar" // data: {}; the cached calendar changed
 )
 
 // NotifyTestResult says how a test notification was sent.
@@ -94,7 +95,8 @@ type Status struct {
 
 // MeetingInfo is the calendar's side of a meeting message.
 type MeetingInfo struct {
-	Found     bool   `json:"found"`               // the meeting is on the calendar
+	Found     bool   `json:"found"` // the meeting is on the calendar
+	EventID   string `json:"event_id,omitempty"`
 	Response  string `json:"response,omitempty"`  // the user's answer: none, accepted, tentativelyAccepted, declined, organizer, notResponded
 	Cancelled bool   `json:"cancelled,omitempty"` // the organizer cancelled it
 	Organizer bool   `json:"organizer,omitempty"` // the user organized it

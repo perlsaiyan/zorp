@@ -105,8 +105,8 @@ func TestUntag(t *testing.T) {
 		{"[EXTERNAL]", "[EXTERNAL]", false}, // nothing else to show
 		{"Plain subject", "Plain subject", false},
 	} {
-		if got, ext := untag(c.in); got != c.want || ext != c.external {
-			t.Errorf("untag(%q) = %q, %v", c.in, got, ext)
+		if got, ext := Untag(c.in); got != c.want || ext != c.external {
+			t.Errorf("Untag(%q) = %q, %v", c.in, got, ext)
 		}
 	}
 	notes := Build(defaults(), []store.Message{msg("x", "Jo Park", "jo@ext.example", "[EXTERNAL]test", false)})

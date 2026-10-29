@@ -71,7 +71,30 @@ windowrule = workspace 9, class:^(com\.zorp\.mail)$
 
 Reload with `hyprctl reload`.
 
-## 6. Check it
+## 6. Waybar: next meeting (optional)
+
+`zorp agenda --waybar` prints a Waybar custom module's JSON: the meeting going on, or the next one today, with the rest of the day in the tooltip. It reads the local cache, so it's instant and works offline. Add a module to the Waybar config (on Omarchy, `~/.config/waybar/config.jsonc`), and add `"custom/zorp"` to one of the `modules-*` lists:
+
+```jsonc
+"custom/zorp": {
+  "exec": "zorp agenda --waybar",
+  "return-type": "json",
+  "interval": 60,
+  "format": "󰃰 {}",
+  "on-click": "zorp-focus"
+}
+```
+
+Optional styling in `~/.config/waybar/style.css`; `class` is `now`, `soon` (within 15 minutes), `later` or `none`:
+
+```css
+#custom-zorp.soon { color: #e0af68; }
+#custom-zorp.now  { font-weight: bold; }
+```
+
+Pick a colour that suits the theme. The module is hidden while nothing else is on today. Reload Waybar to load it: `killall -SIGUSR2 waybar`. Waybar runs commands with its own `PATH`; if `zorp` isn't found, use the full path `~/.local/bin/zorp`.
+
+## 7. Check it
 
 - `zorp notify-test` should show a mako notification. Clicking it runs `zorp-focus`.
   - If the notification shows but clicking does nothing, mako may not invoke the default action on click. Check `on-button-left=invoke-default-action` in mako's config.

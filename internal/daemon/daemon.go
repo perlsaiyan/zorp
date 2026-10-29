@@ -47,6 +47,7 @@ type daemon struct {
 	status             ipc.Status
 	lastFolderRefresh  time.Time
 	offlineStreak      int       // syncs in a row that failed with a network error
+	calendarErr        string    // the last calendar sync error logged, to log each once
 	desktopFailedUntil time.Time // desktop notifications failed; use the terminal until then
 }
 
@@ -347,7 +348,35 @@ func (d *daemon) runSync(ctx context.Context, full, refresh bool) (*mailsync.Res
 		d.server.Broadcast(ipc.EventChanged, changed)
 	}
 	d.notifyNew(ctx, res)
+	d.syncCalendar(ctx)
 	return res, nil
+}
+
+// syncCalendar runs a calendar pass after a mail sync. Its failures are
+// logged (each once) and never affect mail.
+func (d *daemon) syncCalendar(ctx context.Context) {
+	if !d.cfg.Calendar.Enabled {
+		return
+	}
+	res, err := d.engine.SyncCalendar(ctx, d.cal)
+	d.mu.Lock()
+	logIt := err != nil && err.Error() != d.calendarErr
+	if err != nil {
+		d.calendarErr = err.Error()
+	} else {
+		d.calendarErr = ""
+	}
+	d.mu.Unlock()
+	if logIt {
+		d.log.Warn("calendar sync failed", "err", err)
+	}
+	if err != nil {
+		return
+	}
+	if res.Initial || res.Upserted > 0 || res.Removed > 0 {
+		d.log.Info("synced calendar", "initial", res.Initial, "upserted", res.Upserted, "removed", res.Removed)
+		d.server.Broadcast(ipc.EventCalendar, struct{}{})
+	}
 }
 
 // offlineGrace is how many network failures in a row pass with only the

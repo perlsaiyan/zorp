@@ -141,6 +141,7 @@ Exchange puts a new invite on your calendar as tentative by itself. Answering it
 - `I` on a cancellation: removes the meeting from your calendar. This sends nothing.
 - Afterwards the message is archived, like Outlook clears answered invites. Set `calendar.after_respond` to `"delete"` or `"keep"` to change that.
 - An invite that a later update replaced says it's out of date; answer the newer one.
+- `Clashes:` lists meetings already on your calendar at the same time (from the [calendar cache](#calendar)).
 
 This needs the `Calendars.ReadWrite` permission (see [App registration](#app-registration)), which `zorp login` asks for. `zorp probe` checks it. Mail works without it, and `calendar.enabled = false` stops zorp asking.
 
@@ -289,6 +290,20 @@ group_after = 3            # more at once than this: one summary
 click_command = ""         # e.g. "zorp-focus"
 ```
 
+## Calendar
+
+The daemon keeps a window of your calendar cached, from 30 days back to 180 days ahead, and syncs it after each mail sync. Recurring meetings are stored as their single occurrences. It needs the `Calendars.ReadWrite` permission; without it, mail syncs as usual and the daemon log says why the calendar doesn't.
+
+`zorp agenda` lists what's coming up from the cache, so it works offline and returns at once:
+
+```sh
+zorp agenda              # the next 7 days (--days N); declined and cancelled meetings left out (--all)
+zorp agenda --json       # the same as JSON: id, subject, start, end, all_day, location, join_url, organizer, response, show_as, cancelled
+zorp agenda --waybar     # a Waybar module: the meeting going on, or the next one today
+```
+
+`--waybar` prints `{"text", "tooltip", "class", "alt"}` for a Waybar custom module with `"return-type": "json"`. The text is `Standup until 10:30` during a meeting, `Review in 12m` or `Review at 15:00` before one, and empty when nothing else is on today, which hides the module. `class` is `now`, `soon` (within 15 minutes), `later` or `none`, for styling. The tooltip lists the rest of today, and says so when the calendar hasn't synced for a while. Text is escaped for Waybar's markup. [DEPLOY.md](DEPLOY.md) has a module configuration.
+
 ## AI tools (MCP)
 
 `zorp mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server on stdio, so AI tools such as Claude Code and Claude Desktop can read your mail through zorp's cache. To add it to Claude Code:
@@ -306,8 +321,10 @@ For Claude Desktop, add it under `mcpServers` in its config: `"zorp": {"command"
 | `get_message` | One message: headers, attachment list and the body as text, in pages for long ones |
 | `get_thread` | A whole conversation, oldest first |
 | `list_folders` | The folder tree with unread counts |
+| `list_events` | Meetings from the cached calendar (next 7 days by default) |
+| `get_event` | One meeting: time, place, organizer, attendees and their answers, description |
 
-These are read-only. With `mcp.allow_writes = true`, four more appear: `create_draft` (new, reply or forward, saved to Drafts), `mark_read`, `flag_message` and `move_message`. They go through the daemon, so the [guardrails](#safety-guardrails) still apply. **No tool sends mail**: you review a draft in zorp (`g d`, then `e`) and send it yourself.
+These are read-only; the calendar tools appear when `calendar.enabled` is on, and nothing can answer or create meetings. With `mcp.allow_writes = true`, four more appear: `create_draft` (new, reply or forward, saved to Drafts), `mark_read`, `flag_message` and `move_message`. They go through the daemon, so the [guardrails](#safety-guardrails) still apply. **No tool sends mail**: you review a draft in zorp (`g d`, then `e`) and send it yourself.
 
 Email is written by other people and can contain text aimed at an AI ("ignore your instructions and…"). zorp marks all mail content as untrusted in every result, and the tool descriptions tell the model not to follow instructions found in email. Still, think about what a write-enabled tool could do if fooled, and keep writes off unless you want them.
 

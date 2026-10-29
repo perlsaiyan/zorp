@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/perlsaiyan/zorp/internal/agenda"
 	"github.com/perlsaiyan/zorp/internal/ipc"
 	"github.com/perlsaiyan/zorp/internal/store"
 )
@@ -17,17 +18,19 @@ import (
 
 // meetingState is the calendar's side of the previewed meeting message.
 type meetingState struct {
-	forID string // graph ID of the meeting message
-	info  ipc.MeetingInfo
-	err   string
-	known bool // info or err has arrived
+	forID   string // graph ID of the meeting message
+	info    ipc.MeetingInfo
+	err     string
+	known   bool     // info or err has arrived
+	clashes []string // other meetings at the same time, from the cached calendar
 }
 
 type meetingLoadedMsg struct {
-	seq  int
-	id   string
-	info ipc.MeetingInfo
-	err  error
+	seq     int
+	id      string
+	info    ipc.MeetingInfo
+	clashes []string
+	err     error
 }
 
 type respondDoneMsg struct {
@@ -65,21 +68,42 @@ func (m *Model) loadMeeting() tea.Cmd {
 		return nil
 	}
 	m.meeting = &meetingState{forID: msg.GraphID}
-	cfg, seq, id := m.cfg, m.bodySeq, msg.GraphID
+	cfg, st, acct, seq, id, mt := m.cfg, m.st, m.account.ID, m.bodySeq, msg.GraphID, *msg.Meeting
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		var info ipc.MeetingInfo
 		err := callDaemon(ctx, cfg, ipc.MethodMeeting, ipc.MessageRef{GraphID: id}, &info)
-		return meetingLoadedMsg{seq: seq, id: id, info: info, err: err}
+		r := meetingLoadedMsg{seq: seq, id: id, info: info, err: err}
+		if err == nil && mt.Kind == store.MeetingRequest && !mt.AllDay && mt.End.After(mt.Start) {
+			r.clashes = clashes(ctx, st, acct, mt, info.EventID)
+		}
+		return r
 	}
+}
+
+// clashes lists the cached meetings that overlap mt, other than its own
+// event (or, for a series, its occurrences).
+func clashes(ctx context.Context, st *store.Store, acct int64, mt store.Meeting, own string) []string {
+	evs, err := st.EventsBetween(ctx, acct, mt.Start, mt.End)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range evs {
+		if e.Details.AllDay || !e.Details.Busy() || (own != "" && (e.GraphID == own || e.SeriesMasterID == own)) {
+			continue
+		}
+		out = append(out, agenda.When(e)+" "+agenda.Subject(e))
+	}
+	return out
 }
 
 func (m *Model) meetingLoaded(r meetingLoadedMsg) {
 	if r.seq != m.bodySeq || m.meeting == nil || m.meeting.forID != r.id {
 		return
 	}
-	m.meeting.info, m.meeting.known = r.info, true
+	m.meeting.info, m.meeting.known, m.meeting.clashes = r.info, true, r.clashes
 	if r.err != nil {
 		m.meeting.err = r.err.Error()
 	}
@@ -135,6 +159,9 @@ func (m *Model) meetingFields(cur store.Message) [][2]string {
 	}
 	if state != "" {
 		fields = append(fields, [2]string{"Status", state})
+	}
+	if m.meeting != nil && len(m.meeting.clashes) > 0 {
+		fields = append(fields, [2]string{"Clashes", styleWarning.Render(clean(strings.Join(m.meeting.clashes, "; ")))})
 	}
 	if m.meeting != nil && m.meeting.info.JoinURL != "" {
 		fields = append(fields, [2]string{"Join", clean(m.meeting.info.JoinURL)})

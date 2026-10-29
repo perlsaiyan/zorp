@@ -43,6 +43,7 @@ func (d *daemon) meetingInfo(ctx context.Context, params json.RawMessage) (ipc.M
 	}
 	return ipc.MeetingInfo{
 		Found:     true,
+		EventID:   ev.ID,
 		Response:  ev.ResponseStatus.Response,
 		Cancelled: ev.IsCancelled,
 		Organizer: ev.IsOrganizer,
