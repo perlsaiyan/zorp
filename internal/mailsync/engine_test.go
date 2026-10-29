@@ -61,6 +61,11 @@ func (f *fakeGraph) serve(w http.ResponseWriter, r *http.Request) {
 		f.fixture(w, "folders.json")
 	case "/me/mailFolders/AAInbox/childFolders":
 		f.fixture(w, "child_folders.json")
+	case "/me/mailFolders/AAInbox":
+		if q.Get("$select") != "unreadItemCount,totalItemCount" {
+			f.t.Errorf("folder counts $select = %q", q.Get("$select"))
+		}
+		io.WriteString(w, `{"unreadItemCount":5,"totalItemCount":40}`)
 	case "/me/mailFolders/inbox":
 		io.WriteString(w, `{"id":"AAInbox","displayName":"Inbox"}`)
 	case "/me/mailFolders/archive":
@@ -223,6 +228,17 @@ func TestSyncInitialThenIncrementalThenExpired(t *testing.T) {
 	}
 	if _, ok := msgs["m4"]; !ok {
 		t.Error("m4 should have been added")
+	}
+	// The pass changed the inbox, so its server counts were re-read rather
+	// than left at the folder list's figures (2 of 3) until the next refresh.
+	folders, err = st.Folders(ctx, e.AccountID())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range folders {
+		if f.WellKnown == "inbox" && (f.UnreadCount != 5 || f.TotalCount != 40) {
+			t.Errorf("inbox counts after pass 2 = %d/%d, want 5/40", f.UnreadCount, f.TotalCount)
+		}
 	}
 
 	// Pass 3: d2 has expired; the folder resyncs from scratch and m4, which

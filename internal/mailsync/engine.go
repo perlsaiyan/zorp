@@ -218,6 +218,17 @@ func (e *Engine) syncFolder(ctx context.Context, accountID int64, f store.Folder
 	if err != nil {
 		return nil, err
 	}
+	// The folder list, and with it the server's counts, is only re-read now
+	// and then. When mail arrived or changed, refresh this folder's counts
+	// now, or anything showing them (the bar widget) lags the new-mail
+	// notification by up to a folder refresh. Worth a warning, not the pass.
+	if fr.Upserted > 0 || fr.Removed > 0 {
+		if unread, total, err := e.graph.FolderCounts(ctx, f.GraphID); err != nil {
+			e.log.Warn("refreshing folder counts", "folder", f.Name, "err", err)
+		} else if err := e.store.SetFolderCounts(ctx, f.ID, unread, total); err != nil {
+			return nil, err
+		}
+	}
 	fr.Total, fr.Unread, err = e.store.FolderCounts(ctx, f.ID)
 	return fr, err
 }

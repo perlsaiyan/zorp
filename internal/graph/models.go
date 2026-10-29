@@ -128,6 +128,13 @@ func (c *Client) MailFolders(ctx context.Context) ([]MailFolder, error) {
 	return all, nil
 }
 
+// FolderCounts returns a folder's unread and total item counts.
+func (c *Client) FolderCounts(ctx context.Context, id string) (unread, total int, err error) {
+	var f MailFolder
+	err = c.get(ctx, "/me/mailFolders/"+url.PathEscape(id)+"?$select=unreadItemCount,totalItemCount", &f)
+	return f.UnreadItemCount, f.TotalItemCount, err
+}
+
 // WellKnownFolder looks up a folder by well-known name ("inbox", "archive", ...).
 // It returns (nil, nil) if the mailbox doesn't have that folder.
 func (c *Client) WellKnownFolder(ctx context.Context, name string) (*MailFolder, error) {

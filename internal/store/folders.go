@@ -146,6 +146,12 @@ func (s *Store) SetDeltaLink(ctx context.Context, folderID int64, link string, a
 	return err
 }
 
+// SetFolderCounts records a folder's server-side unread and total counts.
+func (s *Store) SetFolderCounts(ctx context.Context, folderID int64, unread, total int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE folders SET unread_count = ?, total_count = ? WHERE id = ?`, unread, total, folderID)
+	return err
+}
+
 // ResetSync clears every delta link and cached message for the account, so
 // the next sync rebuilds from scratch. Folders are kept.
 func (s *Store) ResetSync(ctx context.Context, accountID int64) error {
