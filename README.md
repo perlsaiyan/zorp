@@ -58,7 +58,7 @@ client_id = "00000000-0000-0000-0000-000000000000"
 tenant = "organizations"   # any work/school account; or your org's tenant ID
 ```
 
-5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite**, **Mail.Send** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
+5. Under **API permissions → Add a permission → Microsoft Graph → Delegated permissions**, add **User.Read**, **Mail.Read**, **Mail.ReadWrite**, **Mail.Send**, **Calendars.ReadWrite** and **offline_access**. Don't click "Grant admin consent" here; that only applies to your own tenant.
 
 zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn't strictly needed when you can consent yourself. It matters when your organization requires an admin: their "Grant admin consent" button only grants the permissions listed on the registration. A later version may also ask for `MailboxSettings.Read`.
 
@@ -67,7 +67,7 @@ zorp requests scopes at sign-in (incremental consent), so the list in step 5 isn
 ```sh
 zorp login            # device code; falls back to the browser if that fails
 zorp login --browser  # browser sign-in (auth code + PKCE via http://localhost)
-zorp probe            # go/no-go: signed in? /me readable? Inbox readable?
+zorp probe            # go/no-go: signed in? /me readable? Inbox readable? Calendar?
 zorp whoami
 zorp logout
 ```
@@ -333,7 +333,7 @@ The first time you sign in with a work account, your organization decides whethe
 - **App name:** zorp
 - **Application (client) ID:** your `client_id`
 - **Type:** public client (no secret), delegated permissions only, signs in as you
-- **Delegated permissions:** `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `offline_access` now; later `MailboxSettings.Read`
+- **Delegated permissions:** `User.Read`, `Mail.Read`, `Mail.ReadWrite`, `Mail.Send`, `Calendars.ReadWrite`, `offline_access`; later `MailboxSettings.Read`
 - **How to grant:** Entra admin center → Enterprise applications → zorp → Permissions → Grant admin consent (the app appears there after your first sign-in attempt), or open `https://login.microsoftonline.com/<tenant-id>/adminconsent?client_id=<client_id>` as an admin
 
 If sign-in is blocked by Conditional Access (`AADSTS53003`), try `zorp login --browser`; device code flow is commonly blocked while browser sign-in is allowed.

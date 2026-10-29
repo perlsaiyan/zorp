@@ -16,20 +16,32 @@ const appName = "zorp"
 
 // Config is the contents of ~/.config/zorp/config.toml.
 type Config struct {
-	Auth    Auth    `toml:"auth"`
-	Sync    Sync    `toml:"sync"`
-	Safety  Safety  `toml:"safety"`
-	Keys    Keys    `toml:"keys"`
-	UI      UI      `toml:"ui"`
-	Compose Compose `toml:"compose"`
-	MCP     MCP     `toml:"mcp"`
-	Notify  Notify  `toml:"notify"`
+	Auth     Auth     `toml:"auth"`
+	Sync     Sync     `toml:"sync"`
+	Safety   Safety   `toml:"safety"`
+	Keys     Keys     `toml:"keys"`
+	UI       UI       `toml:"ui"`
+	Compose  Compose  `toml:"compose"`
+	MCP      MCP      `toml:"mcp"`
+	Notify   Notify   `toml:"notify"`
+	Calendar Calendar `toml:"calendar"`
 	// Theme overrides colours by role (see README: Colours), e.g.
 	// accent = "#89b4fa" or selected = "magenta".
 	Theme map[string]string `toml:"theme"`
 
 	// Paths are resolved at load time, not read from the file.
 	Paths Paths `toml:"-"`
+}
+
+// Calendar configures meeting invites and the calendar.
+type Calendar struct {
+	// Enabled asks for calendar access at sign-in. Without it (or without
+	// consent) mail works as before and invites can't be answered.
+	Enabled bool `toml:"enabled"`
+	// AfterRespond is what happens to an invite once it's answered, or
+	// to a cancellation once the meeting is removed: "archive", "delete"
+	// or "keep".
+	AfterRespond string `toml:"after_respond"`
 }
 
 // Notify configures new-mail notifications (sent by the daemon).
@@ -265,11 +277,12 @@ func defaults() Config {
 			Folders:        []string{"inbox", "sentitems", "drafts", "archive"},
 			PrefetchBodies: 500,
 		},
-		Safety:  Safety{ScratchFolder: "zorp-test"},
-		Keys:    Keys{DeleteArchives: true},
-		UI:      UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
-		Compose: Compose{Format: "markdown"},
-		Notify:  Notify{Enabled: true, Method: "auto", Folders: []string{"inbox"}, ShowContent: true, GroupAfter: 3},
+		Safety:   Safety{ScratchFolder: "zorp-test"},
+		Keys:     Keys{DeleteArchives: true},
+		UI:       UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
+		Compose:  Compose{Format: "markdown"},
+		Notify:   Notify{Enabled: true, Method: "auto", Folders: []string{"inbox"}, ShowContent: true, GroupAfter: 3},
+		Calendar: Calendar{Enabled: true, AfterRespond: "archive"},
 	}
 }
 
@@ -303,6 +316,11 @@ func (c *Config) Validate() error {
 	case "", "auto", "tint", "ansi", "none":
 	default:
 		return fmt.Errorf("ui.color must be \"auto\", \"tint\", \"ansi\" or \"none\" in %s", c.Paths.ConfigFile)
+	}
+	switch c.Calendar.AfterRespond {
+	case "archive", "delete", "keep":
+	default:
+		return fmt.Errorf("calendar.after_respond must be \"archive\", \"delete\" or \"keep\" in %s", c.Paths.ConfigFile)
 	}
 	switch c.Notify.Method {
 	case "auto", "desktop", "terminal", "none":

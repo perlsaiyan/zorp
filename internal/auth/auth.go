@@ -20,6 +20,11 @@ import (
 // openid, profile and offline_access itself.
 var Scopes = []string{"User.Read", "Mail.Read", "Mail.ReadWrite", "Mail.Send"}
 
+// CalendarScope is asked for at sign-in when calendar.enabled is set, but
+// never needed for a token: Entra puts every consented scope on Graph
+// tokens, so mail keeps working if calendar consent is refused.
+const CalendarScope = "Calendars.ReadWrite"
+
 // ErrNeedsLogin means there is no usable cached sign-in; run `zorp login`.
 var ErrNeedsLogin = errors.New("not signed in (run `zorp login`)")
 
@@ -35,6 +40,7 @@ const (
 type Authenticator struct {
 	client public.Client
 	cache  *fileCache
+	login  []string // scopes to ask for at sign-in
 }
 
 func New(cfg *config.Config) (*Authenticator, error) {
@@ -52,7 +58,11 @@ func New(cfg *config.Config) (*Authenticator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating MSAL client: %w", err)
 	}
-	return &Authenticator{client: client, cache: fc}, nil
+	login := Scopes
+	if cfg.Calendar.Enabled {
+		login = append(append([]string{}, Scopes...), CalendarScope)
+	}
+	return &Authenticator{client: client, cache: fc, login: login}, nil
 }
 
 // Login runs an interactive sign-in, writing prompts for the user to out.
@@ -72,7 +82,7 @@ func (a *Authenticator) Login(ctx context.Context, mode Mode, out io.Writer) (pu
 }
 
 func (a *Authenticator) loginDevice(ctx context.Context, out io.Writer) (public.Account, error) {
-	dc, err := a.client.AcquireTokenByDeviceCode(ctx, Scopes)
+	dc, err := a.client.AcquireTokenByDeviceCode(ctx, a.login)
 	if err != nil {
 		return public.Account{}, Explain(err)
 	}
@@ -85,7 +95,7 @@ func (a *Authenticator) loginDevice(ctx context.Context, out io.Writer) (public.
 }
 
 func (a *Authenticator) loginBrowser(ctx context.Context, out io.Writer) (public.Account, error) {
-	res, err := a.client.AcquireTokenInteractive(ctx, Scopes,
+	res, err := a.client.AcquireTokenInteractive(ctx, a.login,
 		public.WithRedirectURI("http://localhost"),
 		public.WithOpenURL(func(url string) error {
 			fmt.Fprintf(out, "Opening your browser to sign in. If it doesn't open, visit:\n\n  %s\n\n", url)
@@ -115,11 +125,35 @@ func (a *Authenticator) Account(ctx context.Context) (public.Account, error) {
 // Token returns a Graph access token, refreshing silently if needed. It
 // never prompts; if interaction is required it returns ErrNeedsLogin.
 func (a *Authenticator) Token(ctx context.Context) (string, error) {
+	return a.token(ctx, Scopes)
+}
+
+// ErrNoCalendar means calendar access hasn't been consented to.
+var ErrNoCalendar = errors.New("zorp has no calendar access yet: run `zorp login` and accept the calendar permission (or set calendar.enabled = false)")
+
+// Calendar hands out tokens that carry calendar access, for calendar
+// calls. Asking for the scope by name makes MSAL refresh a cached token
+// from before consent was granted.
+func (a *Authenticator) Calendar() calendarTokens { return calendarTokens{a} }
+
+type calendarTokens struct{ a *Authenticator }
+
+func (c calendarTokens) Token(ctx context.Context) (string, error) {
+	tok, err := c.a.token(ctx, []string{CalendarScope})
+	if errors.Is(err, ErrNeedsLogin) {
+		if _, acctErr := c.a.Account(ctx); acctErr == nil {
+			return "", fmt.Errorf("%w (%v)", ErrNoCalendar, err)
+		}
+	}
+	return tok, err
+}
+
+func (a *Authenticator) token(ctx context.Context, scopes []string) (string, error) {
 	acct, err := a.Account(ctx)
 	if err != nil {
 		return "", err
 	}
-	res, err := a.client.AcquireTokenSilent(ctx, Scopes, public.WithSilentAccount(acct))
+	res, err := a.client.AcquireTokenSilent(ctx, scopes, public.WithSilentAccount(acct))
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", ctx.Err()

@@ -344,7 +344,7 @@ func runProbe(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	_, a, err := newAuth()
+	cfg, a, err := newAuth()
 	if err != nil {
 		return err
 	}
@@ -409,6 +409,16 @@ func runProbe(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Println("ok: test message sent to", self)
+	}
+
+	fmt.Print("6. Calendar (Calendars.ReadWrite) ")
+	if !cfg.Calendar.Enabled {
+		fmt.Println("off (calendar.enabled = false)")
+	} else if n, err := graph.New(a.Calendar()).TodayEventCount(ctx); err != nil {
+		fmt.Println("MISSING")
+		fmt.Printf("   %v\n   Mail works without it; meeting invites can't be answered.\n", err)
+	} else {
+		fmt.Printf("ok: %d meetings today\n", n)
 	}
 	fmt.Println()
 
