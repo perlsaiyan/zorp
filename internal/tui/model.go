@@ -97,6 +97,7 @@ type Model struct {
 	threads    map[string][]store.Message // when threaded: each row's messages, newest first
 	conv       *conversation              // the whole conversation, in the reader
 	meeting    *meetingState              // the calendar's side of the previewed invite
+	buttons    buttonRow                  // clickable buttons in the preview
 	agenda     *agendaView                // the calendar (g c), when open
 	clock      func() time.Time           // for tests; nil means time.Now
 	promptDone func(string) tea.Cmd       // what Enter does in a prompt that isn't search

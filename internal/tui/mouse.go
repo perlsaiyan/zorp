@@ -200,6 +200,9 @@ func (m *Model) paneAt(x, y int) pane {
 }
 
 func (m *Model) click(x, y int) tea.Cmd {
+	if cmd, ok := m.clickButton(x, y); ok {
+		return cmd
+	}
 	if m.reading || m.help || m.picker != nil || y < 1 || y > m.height-2 {
 		return nil
 	}

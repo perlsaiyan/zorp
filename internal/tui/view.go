@@ -97,6 +97,7 @@ func (m *Model) ensureVisible() {
 }
 
 func (m *Model) previewContent(w int) string {
+	m.buttons = buttonRow{}
 	msg, ok := m.currentMessage()
 	if !ok {
 		return ""
@@ -130,6 +131,11 @@ func (m *Model) previewContent(w int) string {
 	}
 	for _, f := range m.meetingFields(msg) {
 		field(f[0], f[1])
+	}
+	if bs := m.meetingButtons(msg); len(bs) > 0 {
+		m.buttons = layoutButtons(strings.Count(b.String(), "\n"), bs)
+		b.WriteString(ansi.Truncate(m.buttons.render(), w, ""))
+		b.WriteString("\n")
 	}
 	b.WriteString(styleFaint.Render(strings.Repeat("─", w)))
 	b.WriteString("\n")
@@ -517,7 +523,8 @@ func (m *Model) helpLines() []string {
 		"    w                 preview: right, bottom, hidden",
 		"    b                 show/hide folder pane",
 		"    + / -             start / stop syncing the folder",
-		"    mouse             click to select, wheel to scroll, drag dividers to resize",
+		"    mouse             click to select, wheel to scroll, drag dividers to resize,",
+		"                      click a meeting's buttons to answer or join it",
 		"                      (Shift+drag selects text; ui.mouse = false turns it off)",
 		"    ctrl+r            sync now",
 		"    L                 log in again (when the session expired)",

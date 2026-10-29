@@ -169,6 +169,39 @@ func (m *Model) meetingFields(cur store.Message) [][2]string {
 	return fields
 }
 
+// meetingButtons are the preview's buttons for a meeting message: answer
+// it, remove it once cancelled, join it. Only with the mouse on, and once
+// the calendar has said how the meeting stands.
+func (m *Model) meetingButtons(cur store.Message) []button {
+	msg, ok := m.meetingOf(cur)
+	if !ok || !m.cfg.UI.Mouse || !answerable(msg.Meeting) || m.meeting == nil || m.meeting.forID != msg.GraphID || !m.meeting.known || m.meeting.err != "" {
+		return nil
+	}
+	info := m.meeting.info
+	var bs []button
+	switch {
+	case !info.Found:
+	case msg.Meeting.Kind == store.MeetingCancelled || info.Cancelled:
+		bs = append(bs, button{label: "Remove from calendar", press: m.meetingKey})
+	case !info.Organizer:
+		for _, a := range []struct{ answer, label, response string }{
+			{ipc.AnswerAccept, "Accept", "accepted"},
+			{ipc.AnswerTentative, "Tentative", "tentativelyAccepted"},
+			{ipc.AnswerDecline, "Decline", "declined"},
+		} {
+			bs = append(bs, button{label: a.label, active: info.Response == a.response, press: func() tea.Cmd {
+				// Telling the organizer goes through the comment prompt, so
+				// it's never one click; I answers without telling them.
+				return m.answerPicked(&picker{graphID: msg.GraphID}, choice{label: a.label, answer: a.answer, send: msg.Meeting.ResponseRequested})
+			}})
+		}
+	}
+	if url := info.JoinURL; url != "" {
+		bs = append(bs, button{label: "Join", press: func() tea.Cmd { return m.openURL(url) }})
+	}
+	return bs
+}
+
 func answerText(response string) string {
 	switch response {
 	case "accepted":
@@ -302,7 +335,11 @@ func (m *Model) answerPicked(p *picker, c choice) tea.Cmd {
 		leave()
 		return m.respond(p.graphID, p.eventID, c.answer, "", false)
 	}
-	m.openTextPrompt("Comment: ", "optional note to the organizer · Enter sends · Esc cancels", func(text string) tea.Cmd {
+	prompt := "Comment: "
+	if c.label != "" {
+		prompt = c.label + ", comment: "
+	}
+	m.openTextPrompt(prompt, "optional note to the organizer · Enter sends · Esc cancels", func(text string) tea.Cmd {
 		leave()
 		return m.respond(p.graphID, p.eventID, c.answer, text, true)
 	})

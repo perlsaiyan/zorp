@@ -52,6 +52,8 @@ func main() {
 			return ipc.Status{State: ipc.StateIdle, Account: me, LastSync: started.Unix(), PID: os.Getpid()}, nil
 		case ipc.MethodMutate:
 			return ipc.MutateResult{}, nil
+		case ipc.MethodMeeting:
+			return ipc.MeetingInfo{Found: true, EventID: "e1", Response: "tentativelyAccepted", Organizer: false, JoinURL: "https://teams.example.com/l/meetup-join/1on1"}, nil
 		}
 		return struct{}{}, nil
 	}, slog.Default())
@@ -73,6 +75,7 @@ type msg struct {
 	attach  []store.Attachment
 	html    string
 	text    string
+	meeting *store.Meeting
 }
 
 var (
@@ -86,6 +89,18 @@ var (
 	news   = store.Address{Name: "The Weekly Terminal", Addr: "editor@newsletter.example.net"}
 	cal    = store.Address{Name: "Jonas Berg", Addr: "jonas@example.com"}
 )
+
+// meetingAt puts a meeting on the coming Friday at 10.
+func meetingAt(mt *store.Meeting, now time.Time) *store.Meeting {
+	if mt == nil {
+		return nil
+	}
+	day := now.AddDate(0, 0, (int(time.Friday)-int(now.Weekday())+7)%7)
+	out := *mt
+	out.Start = time.Date(day.Year(), day.Month(), day.Day(), 10, 0, 0, 0, time.Local)
+	out.End = out.Start.Add(30 * time.Minute)
+	return &out
+}
 
 func pdf(name string, size int64) []store.Attachment {
 	return []store.Attachment{{GraphID: name, Name: name, ContentType: "application/pdf", Kind: "file", Size: size}}
@@ -111,6 +126,9 @@ var mail = []msg{
 	{folder: "inbox", conv: "offsite", from: lena, to: []store.Address{sam}, subject: "Offsite agenda, first draft", ago: 4 * time.Hour,
 		attach: []store.Attachment{{GraphID: "a1", Name: "offsite-agenda.docx", ContentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Kind: "file", Size: 88_211}, {GraphID: "a2", Name: "venue-map.png", ContentType: "image/png", Kind: "file", Size: 1_204_551}},
 		html:   `<p>Hey Sam — first pass at the agenda is attached. The big open question is whether we do the roadmap session on day one or day two.</p><p>Lena</p>`},
+	{folder: "inbox", conv: "1on1", from: cal, to: []store.Address{sam}, subject: "Updated invitation: Sam / Jonas 1:1", ago: 5 * time.Hour,
+		meeting: &store.Meeting{Kind: store.MeetingRequest, Location: "Microsoft Teams Meeting", ResponseRequested: true, Recurring: true},
+		text:    "Moved to Fridays at 10, same link. Jonas"},
 	{folder: "inbox", conv: "1on1", from: cal, to: []store.Address{sam}, subject: "Moving our 1:1 to Friday?", ago: 6 * time.Hour, read: true,
 		text: "Something came up Thursday afternoon. Could we do Friday at 10 instead? Same link.\n\nJonas"},
 	{folder: "inbox", conv: "news", from: news, to: []store.Address{sam}, subject: "This week: tmux tricks, Kitty graphics, and a tiny Forth", ago: 20 * time.Hour, read: true,
@@ -201,6 +219,7 @@ func seed(ctx context.Context, path string, now time.Time) error {
 			HasAttachments: len(m.attach) > 0,
 			Importance:     "normal",
 			BodyPreview:    preview,
+			Meeting:        meetingAt(m.meeting, now),
 		})
 	}
 	for folder, b := range batches {

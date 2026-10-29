@@ -139,6 +139,9 @@ In the viewer, `s` saves the attachment and `o` opens it in its app. In the pick
 Exchange puts a new invite on your calendar as tentative by itself. Answering it, and taking a cancelled meeting off your calendar, is up to the mail client. In zorp, the preview of an invite shows when and where the meeting is, how you've answered so far, and the Teams link if it has one.
 
 - `I` on an invite: accept, tentative or decline, either telling the organizer (with an optional comment) or not. Telling the organizer sends them mail, so the send [guardrail](#safety-guardrails) applies.
+![An invite's preview, with buttons to answer it](docs/screenshots/meeting.png)
+
+- With the mouse on, the preview also has buttons: **Accept**, **Tentative** and **Decline** (the answer you gave is ticked), **Join** for the Teams link, and **Remove from calendar** on a cancelled meeting. A button that tells the organizer asks for the optional comment first, so one stray click never sends mail; `I` answers without telling them.
 - `I` on a cancellation: removes the meeting from your calendar. This sends nothing.
 - Afterwards the message is archived, like Outlook clears answered invites. Set `calendar.after_respond` to `"delete"` or `"keep"` to change that.
 - An invite that a later update replaced says it's out of date; answer the newer one.

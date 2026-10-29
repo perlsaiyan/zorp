@@ -94,3 +94,7 @@ shot conversation
 launch
 keys Space j j Space j Space k k k k
 shot select
+
+launch
+keys j j j j j
+shot meeting

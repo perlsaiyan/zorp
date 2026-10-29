@@ -108,3 +108,55 @@ func TestInviteClashes(t *testing.T) {
 		t.Errorf("clashes = %q", got)
 	}
 }
+
+func TestInviteButtons(t *testing.T) {
+	m, id := withInvite(t, store.MeetingRequest)
+	m.cfg.UI.Mouse = true
+	m.Update(meetingLoadedMsg{seq: m.bodySeq, id: id, info: ipc.MeetingInfo{Found: true, Response: "tentativelyAccepted", JoinURL: "https://teams.example/j"}})
+	var labels []string
+	for _, b := range m.buttons.buttons {
+		labels = append(labels, b.text())
+	}
+	if got := strings.Join(labels, "|"); got != " Accept | ✓ Tentative | Decline | Join " {
+		t.Fatalf("buttons = %q", got)
+	}
+	g := m.geom()
+	if !g.previewOnRight {
+		t.Fatal("test expects the preview on the right")
+	}
+	x0 := g.folderW + 1 + g.listW + 1
+	click := func(x int) tea.Cmd {
+		return m.handleMouse(tea.MouseClickMsg{X: x, Y: 1 + m.buttons.line, Button: tea.MouseLeft})
+	}
+	// The gap between buttons does nothing.
+	click(x0 + m.buttons.buttons[0].x1)
+	if m.prompt != nil {
+		t.Fatal("clicking between buttons shouldn't press one")
+	}
+	// Accept tells the organizer, so it asks for a comment first.
+	click(x0 + m.buttons.buttons[0].x0 + 2)
+	if m.prompt == nil || !strings.HasPrefix(m.prompt.Prompt, "Accept") {
+		t.Fatal("Accept should ask for a comment")
+	}
+	if cmd := submit(m); cmd == nil || m.leaving != id {
+		t.Fatalf("enter should send the answer (leaving %q)", m.leaving)
+	}
+
+	// A cancelled meeting offers removal.
+	m.Update(meetingLoadedMsg{seq: m.bodySeq, id: id, info: ipc.MeetingInfo{Found: true, Cancelled: true}})
+	if len(m.buttons.buttons) != 1 || m.buttons.buttons[0].label != "Remove from calendar" {
+		t.Fatalf("buttons = %+v", m.buttons.buttons)
+	}
+	click(x0 + 1)
+	if m.confirm == nil || !strings.Contains(m.confirm.prompt, "Remove the cancelled meeting") {
+		t.Fatalf("confirm = %+v", m.confirm)
+	}
+
+	// No buttons without the mouse: the keys still work.
+	m.confirm = nil
+	m.cfg.UI.Mouse = false
+	m.refreshPreview(false)
+	if len(m.buttons.buttons) != 0 {
+		t.Error("buttons shown with the mouse off")
+	}
+}
