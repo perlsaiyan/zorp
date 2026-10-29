@@ -33,6 +33,7 @@ const (
 	MethodEventGet    = "event-get"    // params: EventRef; result: EventDetail
 	MethodEventSave   = "event-save"   // params: EventSaveParams; result: EventSaveResult
 	MethodEventCancel = "event-cancel" // params: EventCancelParams; result: EventCancelResult
+	MethodFreeBusy    = "free-busy"    // params: FreeBusyParams; result: []FreeBusy
 	MethodSubscribe   = "subscribe"
 	MethodShutdown    = "shutdown"
 )
@@ -191,6 +192,27 @@ type EventCancelParams struct {
 
 type EventCancelResult struct {
 	Notified int `json:"notified"` // 0: nobody else was invited, so it was just deleted
+}
+
+// FreeBusyParams asks when people are busy between Start and End.
+type FreeBusyParams struct {
+	Addrs []string  `json:"addrs"`
+	Start time.Time `json:"start"`
+	End   time.Time `json:"end"`
+}
+
+// FreeBusy is one person's busy times, as far as their organization
+// shares them.
+type FreeBusy struct {
+	Addr  string `json:"addr"`
+	Busy  []Busy `json:"busy,omitempty"`
+	Error string `json:"error,omitempty"` // e.g. not shared
+}
+
+type Busy struct {
+	Start  time.Time `json:"start"`
+	End    time.Time `json:"end"`
+	Status string    `json:"status"` // tentative, busy, oof, workingElsewhere
 }
 
 type SyncParams struct {

@@ -37,6 +37,12 @@ type planning struct {
 	plan     meeting.Plan
 	problems []string
 	busy     string
+
+	// Invitees' free/busy during the meeting, looked up after each edit.
+	fbKey  string // what fb is for: the people and times
+	fb     []ipc.FreeBusy
+	fbErr  string
+	fbDone bool
 }
 
 type (
@@ -51,7 +57,12 @@ type (
 		new bool
 		err error
 	}
-	planDiscardMsg    struct{}
+	planDiscardMsg struct{}
+	freeBusyMsg    struct {
+		key string
+		res []ipc.FreeBusy
+		err error
+	}
 	eventCancelledMsg struct {
 		res ipc.EventCancelResult
 		err error
@@ -243,7 +254,113 @@ func (m *Model) planEditorDone(err error) tea.Cmd {
 	if p.edit != nil && p.edit.Online && !pl.Teams {
 		p.problems = append(p.problems, "Teams: the Teams meeting can't be taken off again")
 	}
-	return nil
+	return m.loadFreeBusy()
+}
+
+// fbAddrs are the invitees whose free/busy the review screen shows: all
+// but the user, whose own clashes are listed from the calendar.
+func (m *Model) fbAddrs() []string {
+	pl := m.planning.plan
+	seen := map[string]bool{strings.ToLower(m.account.UPN): true}
+	var out []string
+	for _, list := range [][]store.Address{pl.Invite, pl.Optional} {
+		for _, a := range list {
+			if k := strings.ToLower(a.Addr); k != "" && !seen[k] {
+				seen[k] = true
+				out = append(out, a.Addr)
+			}
+		}
+	}
+	return out
+}
+
+// loadFreeBusy asks when the invitees are busy during the meeting.
+func (m *Model) loadFreeBusy() tea.Cmd {
+	p := m.planning
+	addrs := m.fbAddrs()
+	if p.plan.Start.IsZero() || len(addrs) == 0 {
+		p.fbKey, p.fb, p.fbErr, p.fbDone = "", nil, "", false
+		return nil
+	}
+	start, end := p.plan.Start, p.plan.End()
+	key := strings.Join(addrs, ",") + "|" + start.String() + "|" + end.String()
+	if key == p.fbKey {
+		return nil // already looked up (or looking)
+	}
+	p.fbKey, p.fb, p.fbErr, p.fbDone = key, nil, "", false
+	cfg := m.cfg
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		var res []ipc.FreeBusy
+		err := callDaemon(ctx, cfg, ipc.MethodFreeBusy, ipc.FreeBusyParams{Addrs: addrs, Start: start, End: end}, &res)
+		return freeBusyMsg{key: key, res: res, err: err}
+	}
+}
+
+func (m *Model) freeBusyLoaded(r freeBusyMsg) {
+	p := m.planning
+	if p == nil || r.key != p.fbKey {
+		return
+	}
+	p.fb, p.fbDone = r.res, true
+	if r.err != nil {
+		p.fbErr = r.err.Error()
+	}
+}
+
+// freeBusyLines are the review screen's "who's free" lines.
+func (m *Model) freeBusyLines(w int) []string {
+	p := m.planning
+	if p.fbKey == "" {
+		return nil
+	}
+	head := styleHeader.Render("  " + padRight("Free?", 10))
+	switch {
+	case !p.fbDone:
+		return []string{head + " " + styleFaint.Render("checking…")}
+	case p.fbErr != "":
+		return []string{head + " " + styleFaint.Render(ansi.Truncate("couldn't check: "+clean(p.fbErr), max(w-13, 10), "…"))}
+	}
+	names := map[string]string{}
+	for _, a := range append(append([]store.Address{}, p.plan.Invite...), p.plan.Optional...) {
+		names[strings.ToLower(a.Addr)] = senderName(a)
+	}
+	var out []string
+	busy := 0
+	for _, fb := range p.fb {
+		name := names[strings.ToLower(fb.Addr)]
+		if name == "" {
+			name = fb.Addr
+		}
+		var line string
+		switch {
+		case fb.Error != "":
+			line = styleFaint.Render("?  " + clean(name) + "  (not shared)")
+		case len(fb.Busy) == 0:
+			line = "✓  " + clean(name) + styleFaint.Render("  free")
+		default:
+			busy++
+			var spans []string
+			for _, b := range fb.Busy {
+				what := map[string]string{"tentative": "tentative", "oof": "away", "workingElsewhere": "elsewhere"}[b.Status]
+				if what == "" {
+					what = "busy"
+				}
+				spans = append(spans, what+" "+b.Start.Local().Format("15:04")+"–"+b.End.Local().Format("15:04"))
+			}
+			line = styleWarning.Render("✗  "+clean(name)) + "  " + strings.Join(spans, ", ")
+		}
+		if len(out) == 0 {
+			out = append(out, ansi.Truncate(head+" "+line, w, "…"))
+		} else {
+			out = append(out, ansi.Truncate("  "+strings.Repeat(" ", 10)+" "+line, w, "…"))
+		}
+	}
+	if busy > 0 {
+		out = append(out, styleWarning.Render(ansi.Truncate("  ! "+people(busy)+" "+map[bool]string{true: "is", false: "are"}[busy == 1]+" busy then.", w, "…")))
+	}
+	return out
 }
 
 func (m *Model) endPlan() {
@@ -451,6 +568,7 @@ func (m *Model) planLines(w, h int) []string {
 		}
 	}
 	lines = append(lines, field("Teams", teams))
+	lines = append(lines, m.freeBusyLines(w)...)
 	lines = append(lines, "")
 
 	warn := func(s string) { lines = append(lines, styleWarning.Render(ansi.Truncate("  ! "+s, w, "…"))) }

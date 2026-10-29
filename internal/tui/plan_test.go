@@ -79,6 +79,22 @@ func TestPlanNewMeeting(t *testing.T) {
 		t.Errorf("params = %+v", params)
 	}
 
+	// Free/busy is looked up for the others invited.
+	if p.fbKey == "" || p.fbDone {
+		t.Fatalf("free/busy not asked for: %q", p.fbKey)
+	}
+	if !strings.Contains(ansi.Strip(strings.Join(m.planLines(120, 30), "\n")), "checking…") {
+		t.Error("review should say it's checking")
+	}
+	m.Update(freeBusyMsg{key: "stale"})
+	m.Update(freeBusyMsg{key: p.fbKey, res: []ipc.FreeBusy{{Addr: "alice@partner.org", Busy: []ipc.Busy{{Start: *params.Start, End: params.Start.Add(15 * time.Minute), Status: "oof"}}}}})
+	screen = ansi.Strip(strings.Join(m.planLines(120, 30), "\n"))
+	for _, want := range []string{"✗  Alice  away 10:30–10:45", "1 person is busy then"} {
+		if !strings.Contains(screen, want) {
+			t.Errorf("review lacks %q:\n%s", want, screen)
+		}
+	}
+
 	if cmd := m.handleKey("y"); cmd == nil || p.busy != "Sending…" {
 		t.Fatalf("y should send (busy %q)", p.busy)
 	}

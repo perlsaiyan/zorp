@@ -328,6 +328,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notice = "Discarded."
 		return m, nil
 
+	case freeBusyMsg:
+		m.freeBusyLoaded(msg)
+		return m, nil
+
 	case eventCancelledMsg:
 		m.eventCancelled(msg)
 		return m, nil

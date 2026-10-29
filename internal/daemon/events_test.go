@@ -32,6 +32,12 @@ func (g *eventsGraph) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	g.calls = append(g.calls, strings.TrimSpace(r.Method+" "+r.URL.Path+" "+string(body)))
 	switch {
+	case r.URL.Path == "/me/calendar/getSchedule":
+		io.WriteString(w, `{"value":[
+			{"scheduleId":"alice@example.com","scheduleItems":[
+				{"status":"busy","start":{"dateTime":"2026-11-03T13:00:00.0000000","timeZone":"UTC"},"end":{"dateTime":"2026-11-03T13:30:00.0000000","timeZone":"UTC"}},
+				{"status":"free","start":{"dateTime":"2026-11-03T13:30:00","timeZone":"UTC"},"end":{"dateTime":"2026-11-03T14:00:00","timeZone":"UTC"}}]},
+			{"scheduleId":"dana@partner.org","error":{"message":"not shared","responseCode":"ErrorAccessDenied"}}]}`)
 	case r.Method == http.MethodPost && r.URL.Path == "/me/events":
 		io.WriteString(w, `{"id":"new1","onlineMeeting":{"joinUrl":"https://teams.example/new"}}`)
 	case r.Method == http.MethodGet:
@@ -144,5 +150,24 @@ func TestChangeAndCancelMeeting(t *testing.T) {
 	}
 	if _, err := call(t, d.eventCancel, ipc.EventCancelParams{ID: "e9"}); err == nil || !strings.Contains(err.Error(), "decline") {
 		t.Errorf("cancel someone else's: %v", err)
+	}
+}
+
+func TestFreeBusy(t *testing.T) {
+	g := &eventsGraph{}
+	d := newMeetingDaemon(t, &config.Config{Calendar: config.Calendar{Enabled: true}}, g)
+	start := time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC)
+	res, err := call(t, d.freeBusy, ipc.FreeBusyParams{Addrs: []string{"alice@example.com", "dana@partner.org"}, Start: start, End: start.Add(time.Hour)})
+	if err != nil || len(res) != 2 {
+		t.Fatalf("free-busy: %+v, %v", res, err)
+	}
+	if b := res[0].Busy; len(b) != 1 || b[0].Status != "busy" || !b[0].Start.Equal(start) || !b[0].End.Equal(start.Add(30*time.Minute)) {
+		t.Errorf("alice = %+v", res[0])
+	}
+	if res[1].Error != "not shared" {
+		t.Errorf("dana = %+v", res[1])
+	}
+	if _, err := call(t, d.freeBusy, ipc.FreeBusyParams{Start: start, End: start}); err == nil {
+		t.Error("empty request")
 	}
 }

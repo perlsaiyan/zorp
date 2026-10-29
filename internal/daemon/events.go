@@ -202,6 +202,42 @@ func (d *daemon) eventCancel(ctx context.Context, params json.RawMessage) (ipc.E
 	return ipc.EventCancelResult{Notified: notified}, nil
 }
 
+// freeBusy looks up when people are busy: read-only, nothing is sent.
+func (d *daemon) freeBusy(ctx context.Context, params json.RawMessage) ([]ipc.FreeBusy, error) {
+	var p ipc.FreeBusyParams
+	if err := json.Unmarshal(params, &p); err != nil || len(p.Addrs) == 0 || !p.End.After(p.Start) {
+		return nil, errors.New("free-busy needs addresses and a span")
+	}
+	if !d.cfg.Calendar.Enabled {
+		return nil, errCalendarOff
+	}
+	if len(p.Addrs) > 100 {
+		return nil, errors.New("free-busy: too many people")
+	}
+	scheds, err := d.cal.GetSchedule(ctx, p.Addrs, p.Start, p.End)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ipc.FreeBusy, 0, len(scheds))
+	for _, s := range scheds {
+		fb := ipc.FreeBusy{Addr: s.ScheduleID}
+		if s.Error != nil {
+			fb.Error = s.Error.Message
+			if fb.Error == "" {
+				fb.Error = s.Error.ResponseCode
+			}
+		}
+		for _, it := range s.Items {
+			if it.Status == "free" {
+				continue
+			}
+			fb.Busy = append(fb.Busy, ipc.Busy{Start: it.Start.Time(), End: it.End.Time(), Status: it.Status})
+		}
+		out = append(out, fb)
+	}
+	return out, nil
+}
+
 // checkInvitees applies the send guardrail to mail about a meeting going
 // to addrs, and says how many people (other than the user) get it.
 func (d *daemon) checkInvitees(ctx context.Context, addrs []string) (int, error) {

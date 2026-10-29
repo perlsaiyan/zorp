@@ -322,3 +322,47 @@ func (c *Client) CancelEvent(ctx context.Context, id, comment string) error {
 	}
 	return c.postOnce(ctx, "/me/events/"+url.PathEscape(id)+"/cancel", body, nil)
 }
+
+// Schedule is one person's free/busy over a span (getSchedule).
+type Schedule struct {
+	ScheduleID string         `json:"scheduleId"`
+	Items      []ScheduleItem `json:"scheduleItems"`
+	Error      *struct {
+		Message      string `json:"message"`
+		ResponseCode string `json:"responseCode"`
+	} `json:"error"`
+}
+
+// ScheduleItem is a stretch of someone's time that isn't free.
+type ScheduleItem struct {
+	Status string           `json:"status"` // free, tentative, busy, oof, workingElsewhere, unknown
+	Start  DateTimeTimeZone `json:"start"`
+	End    DateTimeTimeZone `json:"end"`
+}
+
+// scheduleBatch is how many people one getSchedule call asks about.
+const scheduleBatch = 20
+
+// GetSchedule returns addrs' free/busy between start and end: only what
+// their organization shares, usually just busy times. Read-only.
+func (c *Client) GetSchedule(ctx context.Context, addrs []string, start, end time.Time) ([]Schedule, error) {
+	var out []Schedule
+	for len(addrs) > 0 {
+		n := min(len(addrs), scheduleBatch)
+		body := map[string]any{
+			"schedules":                addrs[:n],
+			"startTime":                DateTimeTimeZone{DateTime: start.UTC().Format("2006-01-02T15:04:05"), TimeZone: "UTC"},
+			"endTime":                  DateTimeTimeZone{DateTime: end.UTC().Format("2006-01-02T15:04:05"), TimeZone: "UTC"},
+			"availabilityViewInterval": 15,
+		}
+		var page struct {
+			Value []Schedule `json:"value"`
+		}
+		if err := c.post(ctx, "/me/calendar/getSchedule", body, &page, preferUTC); err != nil {
+			return nil, err
+		}
+		out = append(out, page.Value...)
+		addrs = addrs[n:]
+	}
+	return out, nil
+}

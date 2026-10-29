@@ -341,7 +341,7 @@ What went well, and what we'd change.
 - **Teams: yes** adds a Teams link (`calendar.teams` sets the default).
 - **The description** is Markdown, like mail (`compose.format`).
 
-After the editor you get a review screen, which shows clashes with your calendar, mistakes in the file, and who will be mailed. Nothing is sent until you press `y`. Then Exchange sends the invites. A meeting with nobody else invited just goes on your calendar.
+After the editor you get a review screen, which shows clashes with your calendar, mistakes in the file, and who will be mailed. It also shows whether each person invited is free then. That lookup is read-only, and covers only what their organization shares, usually just busy times; people outside it show as "not shared". Nothing is sent until you press `y`. Then Exchange sends the invites. A meeting with nobody else invited just goes on your calendar.
 
 **Changing a meeting** (`e`) works the same way, and everyone invited gets the update. Anyone you take off gets a cancellation. Only what you changed is sent. An unchanged description keeps its formatting and Teams details. Once a meeting has a Teams link, it can't be removed. On a recurring meeting, zorp asks whether you mean this occurrence or the whole series. For the whole series, the times can't be changed here.
 
