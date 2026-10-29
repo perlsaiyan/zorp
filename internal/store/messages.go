@@ -33,6 +33,37 @@ type Message struct {
 	Flagged           bool
 	Categories        []string
 	BodyPreview       string
+	Meeting           *Meeting // set for invites, cancellations and answers
+}
+
+// Meeting kinds.
+const (
+	MeetingRequest   = "request"
+	MeetingCancelled = "cancelled"
+	MeetingAccepted  = "accepted"
+	MeetingTentative = "tentative"
+	MeetingDeclined  = "declined"
+	MeetingOther     = "other"
+)
+
+// Meeting is what a meeting message says about its meeting.
+type Meeting struct {
+	Kind              string    `json:"kind"`
+	Start             time.Time `json:"start"`
+	End               time.Time `json:"end"`
+	AllDay            bool      `json:"all_day,omitempty"`
+	Location          string    `json:"location,omitempty"`
+	OutOfDate         bool      `json:"out_of_date,omitempty"`        // a later update replaced it
+	ResponseRequested bool      `json:"response_requested,omitempty"` // the organizer wants answers
+	Recurring         bool      `json:"recurring,omitempty"`          // the invite is for a series
+}
+
+func meetingJSON(m *Meeting) string {
+	if m == nil {
+		return ""
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 // DeltaBatch is one page of delta results for a folder.
@@ -85,8 +116,8 @@ func upsertMessage(ctx context.Context, tx *sql.Tx, accountID, folderID int64, m
 		INSERT INTO messages (
 			account_id, graph_id, folder_id, conversation_id, internet_message_id, subject,
 			from_name, from_addr, to_json, cc_json, received_at, is_read, has_attachments,
-			importance, flagged, categories_json, body_preview, reply_to_json)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			importance, flagged, categories_json, body_preview, reply_to_json, meeting_json)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (account_id, graph_id) DO UPDATE SET
 			folder_id           = excluded.folder_id,
 			conversation_id     = excluded.conversation_id,
@@ -104,10 +135,11 @@ func upsertMessage(ctx context.Context, tx *sql.Tx, accountID, folderID int64, m
 			categories_json     = excluded.categories_json,
 			body_preview        = excluded.body_preview,
 			reply_to_json       = excluded.reply_to_json,
+			meeting_json        = excluded.meeting_json,
 			from_search         = 0`,
 		accountID, m.GraphID, folderID, m.ConversationID, m.InternetMessageID, m.Subject,
 		m.From.Name, m.From.Addr, jsonOrEmpty(m.To), jsonOrEmpty(m.Cc), m.ReceivedAt.Unix(), m.IsRead, m.HasAttachments,
-		m.Importance, m.Flagged, jsonOrEmpty(m.Categories), m.BodyPreview, jsonOrEmpty(m.ReplyTo))
+		m.Importance, m.Flagged, jsonOrEmpty(m.Categories), m.BodyPreview, jsonOrEmpty(m.ReplyTo), meetingJSON(m.Meeting))
 	return err
 }
 
@@ -162,15 +194,15 @@ func (s *Store) FolderCounts(ctx context.Context, folderID int64) (total, unread
 }
 
 const messageCols = `id, graph_id, folder_id, conversation_id, internet_message_id, subject, from_name, from_addr,
-	to_json, cc_json, received_at, is_read, has_attachments, importance, flagged, categories_json, body_preview, reply_to_json`
+	to_json, cc_json, received_at, is_read, has_attachments, importance, flagged, categories_json, body_preview, reply_to_json, meeting_json`
 
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var m Message
-	var to, cc, cats, replyTo string
+	var to, cc, cats, replyTo, meeting string
 	var received int64
 	err := row.Scan(&m.ID, &m.GraphID, &m.FolderID, &m.ConversationID, &m.InternetMessageID, &m.Subject,
 		&m.From.Name, &m.From.Addr, &to, &cc, &received, &m.IsRead, &m.HasAttachments, &m.Importance,
-		&m.Flagged, &cats, &m.BodyPreview, &replyTo)
+		&m.Flagged, &cats, &m.BodyPreview, &replyTo, &meeting)
 	if err != nil {
 		return m, err
 	}
@@ -181,6 +213,12 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	_ = json.Unmarshal([]byte(cc), &m.Cc)
 	_ = json.Unmarshal([]byte(cats), &m.Categories)
 	_ = json.Unmarshal([]byte(replyTo), &m.ReplyTo)
+	if meeting != "" {
+		var mt Meeting
+		if json.Unmarshal([]byte(meeting), &mt) == nil {
+			m.Meeting = &mt
+		}
+	}
 	return m, nil
 }
 

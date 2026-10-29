@@ -27,6 +27,8 @@ const (
 	MethodImages     = "images"
 	MethodOpenAttach = "open-attachment"
 	MethodNotifyTest = "notify-test" // result: NotifyTestResult
+	MethodMeeting    = "meeting"     // params: MessageRef; result: MeetingInfo
+	MethodRespond    = "respond"     // params: RespondParams; result: RespondResult
 	MethodSubscribe  = "subscribe"
 	MethodShutdown   = "shutdown"
 )
@@ -88,6 +90,38 @@ type Status struct {
 	// Guards lists the guardrails in force: "send", "move", "delete"
 	// (see config.Safety).
 	Guards []string `json:"guards,omitempty"`
+}
+
+// MeetingInfo is the calendar's side of a meeting message.
+type MeetingInfo struct {
+	Found     bool   `json:"found"`               // the meeting is on the calendar
+	Response  string `json:"response,omitempty"`  // the user's answer: none, accepted, tentativelyAccepted, declined, organizer, notResponded
+	Cancelled bool   `json:"cancelled,omitempty"` // the organizer cancelled it
+	Organizer bool   `json:"organizer,omitempty"` // the user organized it
+	JoinURL   string `json:"join_url,omitempty"`
+}
+
+// Answers for RespondParams.
+const (
+	AnswerAccept    = "accept"
+	AnswerTentative = "tentative"
+	AnswerDecline   = "decline"
+	AnswerRemove    = "remove" // take a cancelled meeting off the calendar
+)
+
+type RespondParams struct {
+	GraphID string `json:"graph_id"` // the meeting message
+	Answer  string `json:"answer"`
+	Comment string `json:"comment,omitempty"`
+	Send    bool   `json:"send,omitempty"` // tell the organizer
+}
+
+type RespondResult struct {
+	// After says what happened to the message afterwards (calendar.after_respond):
+	// "archive", "delete" or "" (kept).
+	After string `json:"after,omitempty"`
+	// AfterError is why that failed, when it did; the answer itself went through.
+	AfterError string `json:"after_error,omitempty"`
 }
 
 type SyncParams struct {

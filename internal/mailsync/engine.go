@@ -380,7 +380,43 @@ func toStore(m graph.Message) store.Message {
 	if out.Importance == "" {
 		out.Importance = "normal"
 	}
+	out.Meeting = meeting(m)
 	return out
+}
+
+// meeting reads a meeting message's fields, or nil for other mail.
+func meeting(m graph.Message) *store.Meeting {
+	if m.MeetingMessageType == "" && !strings.Contains(strings.ToLower(m.ODataType), "eventmessage") {
+		return nil
+	}
+	mt := &store.Meeting{
+		Start:     m.StartDateTime.Time(),
+		End:       m.EndDateTime.Time(),
+		AllDay:    m.IsAllDay,
+		OutOfDate: m.IsOutOfDate,
+		Recurring: m.MeetingType == "seriesMaster",
+	}
+	if m.Location != nil {
+		mt.Location = m.Location.DisplayName
+	}
+	if m.ResponseRequested != nil {
+		mt.ResponseRequested = *m.ResponseRequested
+	}
+	switch m.MeetingMessageType {
+	case "meetingRequest":
+		mt.Kind = store.MeetingRequest
+	case "meetingCancelled":
+		mt.Kind = store.MeetingCancelled
+	case "meetingAccepted":
+		mt.Kind = store.MeetingAccepted
+	case "meetingTenativelyAccepted", "meetingTentativelyAccepted": // Graph's spelling, and the fix
+		mt.Kind = store.MeetingTentative
+	case "meetingDeclined":
+		mt.Kind = store.MeetingDeclined
+	default:
+		mt.Kind = store.MeetingOther
+	}
+	return mt
 }
 
 func addrs(rs []graph.Recipient) []store.Address {

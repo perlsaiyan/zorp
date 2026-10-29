@@ -34,6 +34,7 @@ type daemon struct {
 	cfg    *config.Config
 	store  *store.Store
 	engine *mailsync.Engine
+	cal    *graph.Client // calendar calls, with a token carrying calendar access
 	server *ipc.Server
 	log    *slog.Logger
 	cancel context.CancelFunc
@@ -106,6 +107,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 			InitialDays: cfg.Sync.InitialDays,
 			DraftDir:    filepath.Join(cfg.Paths.DataDir, "drafts"),
 		}, log),
+		cal:       graph.New(a.Calendar()),
 		log:       log,
 		cancel:    cancel,
 		requests:  make(chan syncRequest),
@@ -467,6 +469,10 @@ func (d *daemon) handle(ctx context.Context, method string, params json.RawMessa
 		return d.listAttachments(ctx, params)
 	case ipc.MethodNotifyTest:
 		return d.notifyTest(), nil
+	case ipc.MethodMeeting:
+		return d.meetingInfo(ctx, params)
+	case ipc.MethodRespond:
+		return d.respond(ctx, params)
 	case ipc.MethodOpenAttach:
 		return d.openAttachment(ctx, params)
 	case ipc.MethodSaveAttach:

@@ -229,4 +229,11 @@ UPDATE folders SET delta_link = '';
 ALTER TABLE messages ADD COLUMN attachments_fetched INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE attachments ADD COLUMN kind TEXT NOT NULL DEFAULT 'file';
 `,
+	// 7: what meeting messages say about their meeting (JSON, '' for
+	// other mail). Delta links are dropped so each folder's window is
+	// re-read with the meeting fields selected.
+	`
+ALTER TABLE messages ADD COLUMN meeting_json TEXT NOT NULL DEFAULT '';
+UPDATE folders SET delta_link = '';
+`,
 }

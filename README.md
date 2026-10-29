@@ -101,6 +101,7 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `F` | forward |
 | `e` | edit a draft (in Drafts) |
 | `V` | open an attachment (see [Attachments](#attachments)) |
+| `I` | answer a meeting invite, or remove a cancelled meeting (see [Meeting invites](#meeting-invites)) |
 | `s` | save attachments (to `~/Downloads`; `ui.save_dir`; attached emails as `.eml`) |
 | `z` | show/hide quoted replies and signature |
 | `O` | pick a link and open it in the browser |
@@ -131,6 +132,23 @@ The preview header lists a message's attachments (`Attached:`), leaving out the 
 - Anything else opens in the desktop's default app (`xdg-open`). Over SSH, where there's no desktop, it's saved to `ui.save_dir` instead.
 
 In the viewer, `s` saves the attachment and `o` opens it in its app. In the picker, `Ctrl+S` saves instead of opening. Copies made for viewing are kept for a week in `~/.local/share/zorp/open`, readable only by you.
+
+### Meeting invites
+
+Exchange puts a new invite on your calendar as tentative by itself. Answering it, and taking a cancelled meeting off your calendar, is up to the mail client. In zorp, the preview of an invite shows when and where the meeting is, how you've answered so far, and the Teams link if it has one.
+
+- `I` on an invite: accept, tentative or decline, either telling the organizer (with an optional comment) or not. Telling the organizer sends them mail, so the send [guardrail](#safety-guardrails) applies.
+- `I` on a cancellation: removes the meeting from your calendar. This sends nothing.
+- Afterwards the message is archived, like Outlook clears answered invites. Set `calendar.after_respond` to `"delete"` or `"keep"` to change that.
+- An invite that a later update replaced says it's out of date; answer the newer one.
+
+This needs the `Calendars.ReadWrite` permission (see [App registration](#app-registration)), which `zorp login` asks for. `zorp probe` checks it. Mail works without it, and `calendar.enabled = false` stops zorp asking.
+
+```toml
+[calendar]
+enabled = true             # ask for calendar access at sign-in
+after_respond = "archive"  # or "delete", "keep"
+```
 
 ### Images
 

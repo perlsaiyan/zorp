@@ -229,6 +229,17 @@ Hard rules:
 - **Desktop:** `notify-send --action=default=Open --wait -- title body`, run without a shell. The body is HTML-escaped because servers may render markup, and every string is sanitized. The daemon first checks the session bus for an owner or activatable `org.freedesktop.Notifications`, because without one `notify-send --wait` hangs. A click broadcasts `open` (the TUI selects the message) and runs `notify.click_command`.
 - **Terminal fallback:** the daemon broadcasts a `notify` event. The TUI writes OSC 777 (Ghostty, foot, WezTerm), OSC 99 (kitty) or OSC 9, wrapped for tmux. `zorp notify-test` checks the setup.
 
+## 8b. Calendar (ZORP-16 to ZORP-19)
+
+Exchange's calendar attendant adds incoming invites to the calendar as tentative and applies updates. Answering them, and removing cancelled meetings, is the client's job; until zorp does it, archiving an invite leaves the meeting tentative and unanswered.
+
+- **Consent:** `Calendars.ReadWrite` is asked for at sign-in (`calendar.enabled`, default true). Entra puts every consented scope on Graph tokens, so mail tokens never request it and mail keeps working without it. Calendar calls request the scope by name, which also refreshes a cached token from before consent. `zorp probe` checks it.
+- **Invites in mail** *(C2, as built)*: meeting messages are `eventMessage`s. The sync selects their fields with casts (`microsoft.graph.eventMessage/meetingMessageType`, `startDateTime`, `endDateTime`, `location`, `isAllDay`, `isOutOfDate`, `type`, `microsoft.graph.eventMessageRequest/responseRequested`), which delta accepts, and stores them as `meeting_json` (migration 7 dropped delta links to fill it in). These fields need only mail permissions. The daemon's `meeting` method expands `microsoft.graph.eventMessage/event` (needs calendar access) for the user's answer, cancellation and join link. `respond` answers through `/me/events/{id}/accept|tentativelyAccept|decline` (`sendResponse`, `comment`), or deletes a cancelled event, then applies `calendar.after_respond` (archive by default) through the normal mutate path. Telling the organizer is a send under the send guardrail; answering quietly or removing a cancelled meeting is not.
+- **Calendar cache** *(C3)*: the daemon syncs a window (30 days back, 180 ahead) with `/me/calendarView/delta`, which expands recurring meetings into occurrences, so zorp never handles recurrence rules. A delta link only covers its window, so a fresh pass starts about daily as the window moves. Times are stored in UTC (`Prefer: outlook.timezone="UTC"`) and shown in local time. `zorp agenda` (and `--json`, for a Waybar module set up on the desktop machine) and clash warnings on invites build on it. MCP gains read-only `list_events` and `get_event`.
+- **Agenda view** *(C4)*: `g c`: days as headings with meetings listed, details on the right; `[`/`]` weeks, `t` today, `O` join link, `I` answer. Reminders go through the notifications (`calendar.remind`, default 10m).
+- **Writing** *(C5)*: new and edited meetings from an editor template, like compose, with free/busy on review; invites are sends under the guardrail. No MCP tool answers or creates meetings, since both send mail.
+- **Later:** week grid, shared calendars, proposing a new time, rooms.
+
 ## 9. AI features inside the TUI
 
 - Provider-agnostic: shell out to a configurable command (default: `claude -p`) or call an HTTP endpoint. Config: `ai.command = "claude -p"`.
@@ -280,7 +291,7 @@ config/                        # config loading and defaults
 
 ## 13. Non-goals for v1
 
-Calendar, contacts, rules management, multi-account, shared mailboxes, S/MIME, Windows/macOS support, mobile.
+Contacts, rules management, multi-account, shared mailboxes, S/MIME, Windows/macOS support, mobile.
 
 ## 14. First instruction to Claude Code
 

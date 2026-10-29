@@ -9,6 +9,9 @@ tenant = "organizations"
 # [safety]
 # safe_mode = true    # only send to yourself; no deleting; moves only to scratch_folder
 
+[calendar]
+after_respond = "archive"   # what happens to an invite once answered: archive, delete or keep
+
 [notify]
 click_command = "zorp-focus"
 

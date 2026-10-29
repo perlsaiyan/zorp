@@ -338,8 +338,8 @@ func (s *Store) SaveSearchHits(ctx context.Context, accountID int64, hits []Sear
 				INSERT INTO messages (
 					account_id, graph_id, folder_id, conversation_id, internet_message_id, subject,
 					from_name, from_addr, to_json, cc_json, received_at, is_read, has_attachments,
-					importance, flagged, categories_json, body_preview, reply_to_json, from_search, searched_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+					importance, flagged, categories_json, body_preview, reply_to_json, meeting_json, from_search, searched_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
 				ON CONFLICT (account_id, graph_id) DO UPDATE SET
 					folder_id           = excluded.folder_id,
 					subject             = excluded.subject,
@@ -354,11 +354,12 @@ func (s *Store) SaveSearchHits(ctx context.Context, accountID int64, hits []Sear
 					categories_json     = excluded.categories_json,
 					body_preview        = excluded.body_preview,
 					reply_to_json       = excluded.reply_to_json,
+					meeting_json        = excluded.meeting_json,
 					searched_at         = excluded.searched_at
 				WHERE messages.from_search = 1`,
 				accountID, m.GraphID, h.FolderID, m.ConversationID, m.InternetMessageID, m.Subject,
 				m.From.Name, m.From.Addr, jsonOrEmpty(m.To), jsonOrEmpty(m.Cc), m.ReceivedAt.Unix(), m.IsRead, m.HasAttachments,
-				m.Importance, m.Flagged, jsonOrEmpty(m.Categories), m.BodyPreview, jsonOrEmpty(m.ReplyTo), now.Unix())
+				m.Importance, m.Flagged, jsonOrEmpty(m.Categories), m.BodyPreview, jsonOrEmpty(m.ReplyTo), meetingJSON(m.Meeting), now.Unix())
 			if err != nil {
 				return err
 			}

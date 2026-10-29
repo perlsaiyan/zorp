@@ -128,6 +128,9 @@ func (m *Model) previewContent(w int) string {
 	if line := m.attachedLine(); line != "" {
 		field("Attached", line+styleFaint.Render("  (V open, s save)"))
 	}
+	for _, f := range m.meetingFields(msg) {
+		field(f[0], f[1])
+	}
 	b.WriteString(styleFaint.Render(strings.Repeat("─", w)))
 	b.WriteString("\n")
 
@@ -524,6 +527,8 @@ func (m *Model) helpLines() []string {
 		"    r / R             reply / reply to all",
 		"    F                 forward",
 		"    e                 edit a draft (in Drafts)",
+		"    I                 answer a meeting invite (accept, tentative, decline), or",
+		"                      remove a cancelled meeting from your calendar",
 		"    V                 open an attachment: text, PDFs (with pdftotext), attached",
 		"                      emails and images show here; others open in their app,",
 		"                      or are saved when there's no desktop (over SSH)",

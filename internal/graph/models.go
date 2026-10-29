@@ -49,6 +49,18 @@ type Message struct {
 	BodyPreview       string      `json:"bodyPreview"`
 	ParentFolderID    string      `json:"parentFolderId"`
 
+	// Meeting messages (invites, cancellations, answers) are
+	// eventMessages, with these fields too.
+	ODataType          string            `json:"@odata.type"`
+	MeetingMessageType string            `json:"meetingMessageType"`
+	StartDateTime      *DateTimeTimeZone `json:"startDateTime"`
+	EndDateTime        *DateTimeTimeZone `json:"endDateTime"`
+	Location           *Location         `json:"location"`
+	IsAllDay           bool              `json:"isAllDay"`
+	IsOutOfDate        bool              `json:"isOutOfDate"`
+	ResponseRequested  *bool             `json:"responseRequested"`
+	MeetingType        string            `json:"type"` // singleInstance, occurrence, exception, seriesMaster
+
 	// Removed is set on delta items for messages that left the folder.
 	Removed *struct {
 		Reason string `json:"reason"`
@@ -57,7 +69,11 @@ type Message struct {
 
 // messageSelect is the $select list for message summaries.
 const messageSelect = "id,conversationId,internetMessageId,subject,from,toRecipients,ccRecipients,replyTo," +
-	"receivedDateTime,isRead,hasAttachments,importance,flag,categories,bodyPreview,parentFolderId"
+	"receivedDateTime,isRead,hasAttachments,importance,flag,categories,bodyPreview,parentFolderId," +
+	"microsoft.graph.eventMessage/meetingMessageType,microsoft.graph.eventMessage/startDateTime," +
+	"microsoft.graph.eventMessage/endDateTime,microsoft.graph.eventMessage/location," +
+	"microsoft.graph.eventMessage/isAllDay,microsoft.graph.eventMessage/isOutOfDate," +
+	"microsoft.graph.eventMessage/type,microsoft.graph.eventMessageRequest/responseRequested"
 
 type MailFolder struct {
 	ID               string `json:"id"`

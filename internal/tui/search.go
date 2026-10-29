@@ -68,16 +68,29 @@ func (m *Model) openPrompt() {
 	m.prompt = newPrompt(text, m.width)
 }
 
-// promptMsg handles input while the search prompt is open.
+// openTextPrompt asks for a line of text at the bottom of the screen;
+// Enter passes it to done.
+func (m *Model) openTextPrompt(prompt, placeholder string, done func(string) tea.Cmd) {
+	m.prompt = newPrompt("", m.width)
+	m.prompt.Prompt, m.prompt.Placeholder = prompt, placeholder
+	m.promptDone = done
+}
+
+// promptMsg handles input while a prompt is open: search, unless
+// openTextPrompt opened it.
 func (m *Model) promptMsg(msg tea.Msg) tea.Cmd {
 	if k, ok := msg.(tea.KeyPressMsg); ok {
 		switch k.String() {
 		case "enter":
 			text := strings.TrimSpace(m.prompt.Value())
-			m.prompt = nil
+			done := m.promptDone
+			m.prompt, m.promptDone = nil, nil
+			if done != nil {
+				return done(text)
+			}
 			return m.startSearch(text)
 		case "esc", "ctrl+c":
-			m.prompt = nil
+			m.prompt, m.promptDone = nil, nil
 			return nil
 		}
 	}

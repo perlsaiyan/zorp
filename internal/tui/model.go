@@ -96,6 +96,8 @@ type Model struct {
 	threaded   bool                       // one row per conversation (T)
 	threads    map[string][]store.Message // when threaded: each row's messages, newest first
 	conv       *conversation              // the whole conversation, in the reader
+	meeting    *meetingState              // the calendar's side of the previewed invite
+	promptDone func(string) tea.Cmd       // what Enter does in a prompt that isn't search
 	convAnchor int                        // line of conv's first unread message
 
 	daemonUp bool
@@ -219,7 +221,7 @@ func (m *Model) selectMessage() tea.Cmd {
 	m.showQuoted = isForward(msg.Subject)
 	m.conv = nil
 	m.refreshPreview(true)
-	return tea.Batch(readBodyCmd(m.st, m.bodySeq, msg.ID), m.loadConversation())
+	return tea.Batch(readBodyCmd(m.st, m.bodySeq, msg.ID), m.loadConversation(), m.loadMeeting())
 }
 
 func (m *Model) openFolder(id int64) tea.Cmd {
@@ -316,6 +318,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case attachmentsMsg:
 		m.openAttachmentPicker(msg)
 		return m, nil
+
+	case meetingLoadedMsg:
+		m.meetingLoaded(msg)
+		return m, nil
+
+	case respondDoneMsg:
+		return m, m.respondDone(msg)
 
 	case cachedAttsMsg:
 		if msg.seq == m.bodySeq {
@@ -780,6 +789,8 @@ func (m *Model) actionKey(key string) (tea.Cmd, bool) {
 		return m.listAttachmentsCmd(false), true
 	case "V":
 		return m.listAttachmentsCmd(true), true
+	case "I":
+		return m.meetingKey(), true
 	}
 	return nil, false
 }
