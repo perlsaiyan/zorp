@@ -261,4 +261,9 @@ CREATE TABLE calendar_sync (
 	synced_at    INTEGER NOT NULL DEFAULT 0
 );
 `,
+	// 9: events keep whether the organizer wants answers; a fresh pass
+	// fills it in.
+	`
+UPDATE calendar_sync SET delta_link = '';
+`,
 }

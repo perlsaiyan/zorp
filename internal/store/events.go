@@ -20,18 +20,20 @@ type Event struct {
 
 // EventDetails is everything about an event but its times.
 type EventDetails struct {
-	Subject     string     `json:"subject,omitempty"`
-	AllDay      bool       `json:"all_day,omitempty"`
-	Location    string     `json:"location,omitempty"`
-	Organizer   Address    `json:"organizer"`
-	IsOrganizer bool       `json:"is_organizer,omitempty"`
-	Response    string     `json:"response,omitempty"` // the user's: none, accepted, tentativelyAccepted, declined, organizer, notResponded
-	ShowAs      string     `json:"show_as,omitempty"`  // free, tentative, busy, oof, workingElsewhere
-	Cancelled   bool       `json:"cancelled,omitempty"`
-	JoinURL     string     `json:"join_url,omitempty"`
-	WebLink     string     `json:"web_link,omitempty"`
-	Preview     string     `json:"preview,omitempty"` // start of the description
-	Attendees   []Attendee `json:"attendees,omitempty"`
+	Subject     string  `json:"subject,omitempty"`
+	AllDay      bool    `json:"all_day,omitempty"`
+	Location    string  `json:"location,omitempty"`
+	Organizer   Address `json:"organizer"`
+	IsOrganizer bool    `json:"is_organizer,omitempty"`
+	// ResponseRequested: the organizer wants answers.
+	ResponseRequested bool       `json:"response_requested,omitempty"`
+	Response          string     `json:"response,omitempty"` // the user's: none, accepted, tentativelyAccepted, declined, organizer, notResponded
+	ShowAs            string     `json:"show_as,omitempty"`  // free, tentative, busy, oof, workingElsewhere
+	Cancelled         bool       `json:"cancelled,omitempty"`
+	JoinURL           string     `json:"join_url,omitempty"`
+	WebLink           string     `json:"web_link,omitempty"`
+	Preview           string     `json:"preview,omitempty"` // start of the description
+	Attendees         []Attendee `json:"attendees,omitempty"`
 }
 
 // Attendee is someone invited, and their answer.

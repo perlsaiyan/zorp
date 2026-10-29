@@ -83,6 +83,7 @@ type Note struct {
 	Title   string
 	Body    string
 	GraphID string // the message, for a single-message note
+	URL     string // a link to open when it's clicked (a meeting's join link)
 }
 
 // Build makes the notifications for msgs: one each, or a single summary

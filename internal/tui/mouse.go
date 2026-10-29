@@ -91,6 +91,16 @@ func (m *Model) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		}
 		return nil
 	}
+	if m.agenda != nil {
+		if _, ok := msg.(tea.MouseWheelMsg); ok {
+			if mouse.Button == tea.MouseWheelUp {
+				m.agendaKey("k")
+			} else if mouse.Button == tea.MouseWheelDown {
+				m.agendaKey("j")
+			}
+		}
+		return nil
+	}
 	switch msg.(type) {
 	case tea.MouseClickMsg:
 		if mouse.Button != tea.MouseLeft {

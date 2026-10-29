@@ -97,6 +97,8 @@ type Model struct {
 	threads    map[string][]store.Message // when threaded: each row's messages, newest first
 	conv       *conversation              // the whole conversation, in the reader
 	meeting    *meetingState              // the calendar's side of the previewed invite
+	agenda     *agendaView                // the calendar (g c), when open
+	clock      func() time.Time           // for tests; nil means time.Now
 	promptDone func(string) tea.Cmd       // what Enter does in a prompt that isn't search
 	convAnchor int                        // line of conv's first unread message
 
@@ -468,6 +470,14 @@ func (m *Model) handleEvent(ev ipc.Event) tea.Cmd {
 		if json.Unmarshal(ev.Data, &r) == nil {
 			return m.showMessage(r.GraphID)
 		}
+	case ipc.EventCalendar:
+		if m.agenda != nil {
+			keep := ""
+			if e, ok := m.agenda.current(); ok {
+				keep = e.GraphID
+			}
+			m.loadAgenda(keep)
+		}
 	case ipc.EventChanged:
 		if m.search != nil {
 			return tea.Batch(loadCmd(m.st, m.account.ID, m.folderID, ""), m.refreshSearch())
@@ -529,6 +539,13 @@ func (m *Model) handleKey(key string) tea.Cmd {
 
 	if m.gPending {
 		m.gPending = false
+		if key == "c" {
+			m.openAgenda()
+			return nil
+		}
+		if strings.Contains("isda", key) && len(key) == 1 {
+			m.agenda = nil // going to a folder leaves the calendar
+		}
 		switch key {
 		case "i":
 			return m.openWellKnown("inbox")
@@ -544,6 +561,9 @@ func (m *Model) handleKey(key string) tea.Cmd {
 		return nil
 	}
 
+	if m.agenda != nil {
+		return m.agendaKey(key)
+	}
 	if cmd, ok := m.actionKey(key); ok {
 		return cmd
 	}

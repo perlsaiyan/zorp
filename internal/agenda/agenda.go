@@ -32,7 +32,8 @@ func Subject(e store.Event) string {
 	return s
 }
 
-func clean(s string) string { return strings.Join(strings.Fields(render.Sanitize(s, false)), " ") }
+// Clean makes untrusted text one safe line.
+func Clean(s string) string { return strings.Join(strings.Fields(render.Sanitize(s, false)), " ") }
 
 // When is an event's time on its day, e.g. "14:00–14:30" or "all day".
 func When(e store.Event) string {
@@ -78,7 +79,7 @@ func Text(events []store.Event, now time.Time) string {
 		}
 		line := fmt.Sprintf("  %-11s  %s", When(e), Subject(e))
 		var extra []string
-		if loc := clean(e.Details.Location); loc != "" && !strings.HasPrefix(loc, "http") {
+		if loc := Clean(e.Details.Location); loc != "" && !strings.HasPrefix(loc, "http") {
 			extra = append(extra, loc)
 		}
 		if e.Details.JoinURL != "" || strings.HasPrefix(e.Details.Location, "http") {
@@ -127,7 +128,7 @@ func Items(events []store.Event) []Item {
 	for _, e := range events {
 		out = append(out, Item{
 			ID: e.GraphID, Subject: Subject(e), Start: e.Start, End: e.End, AllDay: e.Details.AllDay,
-			Location: clean(e.Details.Location), JoinURL: e.Details.JoinURL, Organizer: clean(e.Details.Organizer.Addr),
+			Location: Clean(e.Details.Location), JoinURL: e.Details.JoinURL, Organizer: Clean(e.Details.Organizer.Addr),
 			Response: e.Details.Response, ShowAs: e.Details.ShowAs, Cancelled: e.Details.Cancelled,
 		})
 	}

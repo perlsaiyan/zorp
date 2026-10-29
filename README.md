@@ -85,6 +85,7 @@ Run `zorp` to open the mail client. The first run syncs before opening. Press `?
 | `Tab` | switch between folders, list and preview |
 | `/` | search (see below); `Esc` goes back to the folder |
 | `g` then `i`/`s`/`d`/`a` | go to Inbox, Sent, Drafts, Archive |
+| `g` then `c` | the calendar (see [Calendar](#calendar)) |
 | `w` | preview on the right, at the bottom, or hidden |
 | `b` | show/hide the folder pane |
 | `u` | toggle read / unread |
@@ -293,6 +294,25 @@ click_command = ""         # e.g. "zorp-focus"
 ## Calendar
 
 The daemon keeps a window of your calendar cached, from 30 days back to 180 days ahead, and syncs it after each mail sync. Recurring meetings are stored as their single occurrences. It needs the `Calendars.ReadWrite` permission; without it, mail syncs as usual and the daemon log says why the calendar doesn't.
+
+`g c` opens it in zorp: two weeks of meetings by day, with the selected one's details beside them (place, organizer, your answer, who's coming and their answers, the description).
+
+| Key | Action |
+|---|---|
+| `j` / `k` | next / previous meeting |
+| `[` / `]` | previous / next week; `t` back to today |
+| `O` | open the meeting's Teams or Zoom link |
+| `I` | answer it, as for an invite (a recurring meeting is answered for the whole series), or remove it if it was cancelled |
+| `q` | back to mail |
+
+Rows marked `?` aren't answered yet, `~` are tentative, and `◦` have a join link. Past, declined and cancelled meetings are faint.
+
+**Reminders:** the daemon shows a notification `calendar.remind` before each meeting (default 10 minutes), through the same channel as new mail and following its settings (`notify.enabled`, `method`, `quiet_hours`, `show_content`). Clicking a desktop reminder opens the meeting's join link. All-day events, declined meetings and time shown as free don't get one.
+
+```toml
+[calendar]
+remind = "10m"   # "0" turns reminders off
+```
 
 `zorp agenda` lists what's coming up from the cache, so it works offline and returns at once:
 

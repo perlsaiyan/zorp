@@ -180,6 +180,15 @@ func (c *Client) MessageEvent(ctx context.Context, messageID string) (*Event, er
 	return m.Event, nil
 }
 
+// GetEvent fetches one event.
+func (c *Client) GetEvent(ctx context.Context, id string) (*Event, error) {
+	var e Event
+	if err := c.get(ctx, "/me/events/"+url.PathEscape(id)+"?$select="+eventSelect, &e, preferUTC); err != nil {
+		return nil, err
+	}
+	return &e, nil
+}
+
 // Answers to a meeting request.
 const (
 	Accept    = "accept"

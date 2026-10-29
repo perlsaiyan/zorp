@@ -81,9 +81,14 @@ func (d *daemon) deliver(n notify.Note) string {
 	return "terminal"
 }
 
-// notificationClicked tells a running zorp to show the message, and runs
-// notify.click_command (e.g. to focus or open zorp's window).
+// notificationClicked opens a reminder's join link. For mail, it tells a
+// running zorp to show the message, and runs notify.click_command (e.g. to
+// focus or open zorp's window).
 func (d *daemon) notificationClicked(n notify.Note) {
+	if n.URL != "" {
+		d.openLink(n.URL)
+		return
+	}
 	if n.GraphID != "" {
 		d.server.Broadcast(ipc.EventOpen, ipc.MessageRef{GraphID: n.GraphID})
 	}

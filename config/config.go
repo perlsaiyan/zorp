@@ -42,6 +42,9 @@ type Calendar struct {
 	// to a cancellation once the meeting is removed: "archive", "delete"
 	// or "keep".
 	AfterRespond string `toml:"after_respond"`
+	// Remind is how long before a meeting to show a reminder (through
+	// the notify settings); 0 turns reminders off.
+	Remind time.Duration `toml:"remind"`
 }
 
 // Notify configures new-mail notifications (sent by the daemon).
@@ -282,7 +285,7 @@ func defaults() Config {
 		UI:       UI{Mouse: true, SaveDir: "~/Downloads", Open: "auto", Graphics: "auto", Color: "auto"},
 		Compose:  Compose{Format: "markdown"},
 		Notify:   Notify{Enabled: true, Method: "auto", Folders: []string{"inbox"}, ShowContent: true, GroupAfter: 3},
-		Calendar: Calendar{Enabled: true, AfterRespond: "archive"},
+		Calendar: Calendar{Enabled: true, AfterRespond: "archive", Remind: 10 * time.Minute},
 	}
 }
 

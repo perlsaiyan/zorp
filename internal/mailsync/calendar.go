@@ -86,16 +86,17 @@ func toStoreEvent(ev graph.Event) store.Event {
 		return out // the rest is the master's
 	}
 	d := store.EventDetails{
-		Subject:     ev.Subject,
-		AllDay:      ev.IsAllDay,
-		Location:    ev.Location.DisplayName,
-		IsOrganizer: ev.IsOrganizer,
-		Response:    ev.ResponseStatus.Response,
-		ShowAs:      ev.ShowAs,
-		Cancelled:   ev.IsCancelled,
-		JoinURL:     ev.JoinURL(),
-		WebLink:     ev.WebLink,
-		Preview:     ev.BodyPreview,
+		Subject:           ev.Subject,
+		AllDay:            ev.IsAllDay,
+		Location:          ev.Location.DisplayName,
+		IsOrganizer:       ev.IsOrganizer,
+		ResponseRequested: ev.ResponseRequested,
+		Response:          ev.ResponseStatus.Response,
+		ShowAs:            ev.ShowAs,
+		Cancelled:         ev.IsCancelled,
+		JoinURL:           ev.JoinURL(),
+		WebLink:           ev.WebLink,
+		Preview:           ev.BodyPreview,
 	}
 	if ev.Organizer != nil {
 		d.Organizer = store.Address{Name: ev.Organizer.EmailAddress.Name, Addr: ev.Organizer.EmailAddress.Address}

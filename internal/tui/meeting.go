@@ -240,7 +240,7 @@ func (m *Model) meetingKey() tea.Cmd {
 		}
 		m.confirm = &confirm{
 			prompt:  "Remove the cancelled meeting from your calendar" + m.afterNote() + "? y/n",
-			cmd:     m.respond(msg.GraphID, ipc.AnswerRemove, "", false),
+			cmd:     m.respond(msg.GraphID, "", ipc.AnswerRemove, "", false),
 			leaving: m.leavingAfter(msg.GraphID),
 		}
 		return nil
@@ -249,13 +249,19 @@ func (m *Model) meetingKey() tea.Cmd {
 		m.errText = "you organized this meeting"
 		return nil
 	}
-	p := &picker{kind: pickAnswer, title: "Answer the invite" + m.afterNote(), graphID: msg.GraphID}
+	m.openAnswerPicker(&picker{kind: pickAnswer, title: "Answer the invite" + m.afterNote(), graphID: msg.GraphID}, msg.Meeting.ResponseRequested)
+	return nil
+}
+
+// openAnswerPicker offers accept, tentative and decline, each with and
+// without telling the organizer when they asked for answers.
+func (m *Model) openAnswerPicker(p *picker, responseRequested bool) {
 	tell, quiet := "and tell the organizer", "without telling the organizer"
-	if !msg.Meeting.ResponseRequested {
+	if !responseRequested {
 		tell = "(the organizer didn't ask for answers)"
 	}
 	for _, a := range []struct{ answer, label string }{{ipc.AnswerAccept, "Accept"}, {ipc.AnswerTentative, "Tentative"}, {ipc.AnswerDecline, "Decline"}} {
-		if msg.Meeting.ResponseRequested {
+		if responseRequested {
 			p.all = append(p.all, choice{label: a.label, detail: tell, answer: a.answer, send: true})
 			p.all = append(p.all, choice{label: a.label, detail: quiet, answer: a.answer})
 		} else {
@@ -264,7 +270,6 @@ func (m *Model) meetingKey() tea.Cmd {
 	}
 	m.picker = p
 	m.filterPicker()
-	return nil
 }
 
 // afterNote says what happens to the message afterwards.
@@ -287,25 +292,32 @@ func (m *Model) leavingAfter(graphID string) string {
 
 // answerPicked handles a choice in the answer picker: answers that tell
 // the organizer first ask for an optional comment.
-func (m *Model) answerPicked(graphID string, c choice) tea.Cmd {
+func (m *Model) answerPicked(p *picker, c choice) tea.Cmd {
+	leave := func() {
+		if p.graphID != "" {
+			m.leaving = m.leavingAfter(p.graphID)
+		}
+	}
 	if !c.send {
-		m.leaving = m.leavingAfter(graphID)
-		return m.respond(graphID, c.answer, "", false)
+		leave()
+		return m.respond(p.graphID, p.eventID, c.answer, "", false)
 	}
 	m.openTextPrompt("Comment: ", "optional note to the organizer · Enter sends · Esc cancels", func(text string) tea.Cmd {
-		m.leaving = m.leavingAfter(graphID)
-		return m.respond(graphID, c.answer, text, true)
+		leave()
+		return m.respond(p.graphID, p.eventID, c.answer, text, true)
 	})
 	return nil
 }
 
-func (m *Model) respond(graphID, answer, comment string, send bool) tea.Cmd {
+// respond answers the invite graphID, or (from the calendar) the event
+// eventID.
+func (m *Model) respond(graphID, eventID, answer, comment string, send bool) tea.Cmd {
 	m.notice = "Answering…"
 	if answer == ipc.AnswerRemove {
 		m.notice = "Removing the meeting…"
 	}
 	cfg := m.cfg
-	p := ipc.RespondParams{GraphID: graphID, Answer: answer, Comment: strings.TrimSpace(comment), Send: send}
+	p := ipc.RespondParams{GraphID: graphID, EventID: eventID, Answer: answer, Comment: strings.TrimSpace(comment), Send: send}
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
@@ -333,6 +345,9 @@ func (m *Model) respondDone(r respondDoneMsg) tea.Cmd {
 		m.notice = done + "; deleted the invite"
 	default:
 		m.notice = done
+	}
+	if m.agenda != nil {
+		return nil // the calendar refreshes when the daemon has synced the change
 	}
 	return m.loadMeeting()
 }

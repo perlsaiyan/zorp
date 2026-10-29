@@ -180,6 +180,8 @@ func (m *Model) View() tea.View {
 		lines = append(lines, padLines(strings.Split(m.viewer.vp.View(), "\n"), m.width, g.bodyH)...)
 	case m.composing != nil:
 		lines = append(lines, m.composeLines(m.width, g.bodyH)...)
+	case m.agenda != nil:
+		lines = append(lines, m.agendaLines(m.width, g.bodyH)...)
 	case m.reading:
 		lines = append(lines, padLines(strings.Split(m.preview.View(), "\n"), m.width, g.bodyH)...)
 	default:
@@ -382,7 +384,9 @@ func (m *Model) topBar() string {
 	if m.account.UPN != "" {
 		left += "  " + m.account.UPN
 	}
-	if s := m.search; s != nil {
+	if a := m.agenda; a != nil {
+		left += "  │  Calendar  " + a.from.Format("Mon 02 Jan") + " – " + a.from.AddDate(0, 0, agendaDays-1).Format("Mon 02 Jan")
+	} else if s := m.search; s != nil {
 		where := "search"
 		if s.kql != "" {
 			where = "server search"
@@ -467,10 +471,12 @@ func (m *Model) bottomBar() string {
 		hints = "j/k scroll  space/- page  s save  o open in its app  q back"
 	case m.composing != nil:
 		hints = "y send  d save to Drafts  e edit again  a attach a file  q discard"
+	case m.gPending:
+		hints = "go to: i inbox  s sent  d drafts  a archive  c calendar  g top"
+	case m.agenda != nil:
+		hints = "j/k move  [ ] weeks  t today  O join link  I answer  ? help  q back"
 	case m.reading:
 		hints = "j/k scroll  space/- page  n/p next/prev  r reply  R all  F fwd  z quotes  O links  V attachments  s save att  u unread  f flag  d " + m.dLabel() + "  q back"
-	case m.gPending:
-		hints = "go to: i inbox  s sent  d drafts  a archive  g top"
 	case len(m.selected) > 0 && m.focus == paneList:
 		hints = strconv.Itoa(len(m.selected)) + " selected:  a archive  d " + m.dLabel() + "  m move  u read/unread  f flag  space toggle  * all  esc clear"
 	case m.focus == paneFolders:
@@ -505,6 +511,7 @@ func (m *Model) helpLines() []string {
 		"  Anywhere",
 		"    tab / shift+tab   next / previous pane",
 		"    g i, g s, g d, g a   go to Inbox, Sent, Drafts, Archive",
+		"    g c               the calendar: two weeks of meetings",
 		"    /                 search (esc in the results goes back to the folder)",
 		"    c                 write a new message",
 		"    w                 preview: right, bottom, hidden",
@@ -548,6 +555,14 @@ func (m *Model) helpLines() []string {
 		"    space             select / unselect, and move down",
 		"    *                 select all listed (again: clear); esc clears",
 		"                      a, d, X, m, u, f then act on all selected",
+		"",
+		"  Calendar  (g c)",
+		"    j/k               move between meetings",
+		"    [ / ]             previous / next week      t  back to today",
+		"    O                 open the meeting's Teams or Zoom link",
+		"    I                 answer (a recurring meeting: the whole series), or remove",
+		"                      a cancelled meeting",
+		"    marks             ? not answered  ~ tentative  ◦ online; faint: past, declined",
 		"",
 		"  Search  (all folders; words match prefixes, all must match)",
 		`    budget "q3 report"   words and phrases in subject, sender or body`,

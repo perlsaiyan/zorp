@@ -11,6 +11,7 @@ tenant = "organizations"
 
 [calendar]
 after_respond = "archive"   # what happens to an invite once answered: archive, delete or keep
+remind = "10m"              # meeting reminders, through [notify]; "0" turns them off
 
 [notify]
 click_command = "zorp-focus"

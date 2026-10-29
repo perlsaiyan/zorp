@@ -46,7 +46,8 @@ type picker struct {
 	title   string
 	query   string
 	cursor  int
-	graphID string   // message whose attachments are listed
+	graphID string   // message whose attachments are listed (or invite answered)
+	eventID string   // pickAnswer from the calendar: the event answered
 	moving  []string // messages being moved
 	all     []choice
 	matches []choice
@@ -133,7 +134,7 @@ func (m *Model) pickerKey(key string) tea.Cmd {
 			case pickFile:
 				return m.attachFile(c.path)
 			case pickAnswer:
-				return m.answerPicked(p.graphID, c)
+				return m.answerPicked(p, c)
 			}
 			if len(p.moving) == 1 {
 				m.leaving = p.moving[0]

@@ -55,10 +55,19 @@ func (d *daemon) meetingInfo(ctx context.Context, params json.RawMessage) (ipc.M
 // calendar, then does calendar.after_respond to the message.
 func (d *daemon) respond(ctx context.Context, params json.RawMessage) (ipc.RespondResult, error) {
 	var p ipc.RespondParams
-	if err := json.Unmarshal(params, &p); err != nil || p.GraphID == "" {
-		return ipc.RespondResult{}, errors.New("respond needs a graph_id")
+	if err := json.Unmarshal(params, &p); err != nil || (p.GraphID == "") == (p.EventID == "") {
+		return ipc.RespondResult{}, errors.New("respond needs a graph_id or an event_id")
 	}
-	msg, ev, err := d.meetingMessage(ctx, p.GraphID)
+	var msg store.Message
+	var ev *graph.Event
+	var err error
+	if p.GraphID != "" {
+		msg, ev, err = d.meetingMessage(ctx, p.GraphID)
+	} else if !d.cfg.Calendar.Enabled {
+		err = errors.New("calendar access is off (calendar.enabled = false)")
+	} else {
+		ev, err = d.cal.GetEvent(ctx, p.EventID)
+	}
 	if err != nil {
 		return ipc.RespondResult{}, err
 	}
@@ -96,8 +105,15 @@ func (d *daemon) respond(ctx context.Context, params json.RawMessage) (ipc.Respo
 	default:
 		return ipc.RespondResult{}, fmt.Errorf("unknown answer %q", p.Answer)
 	}
+	select {
+	case d.kick <- struct{}{}: // the calendar cache catches up
+	default:
+	}
 
 	var res ipc.RespondResult
+	if msg.GraphID == "" {
+		return res, nil // answered from the calendar: no message to put away
+	}
 	op := map[string]string{"archive": ipc.OpArchive, "delete": ipc.OpDelete}[d.cfg.Calendar.AfterRespond]
 	if op == "" {
 		return res, nil

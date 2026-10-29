@@ -120,6 +120,7 @@ func Run(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
 
 	log.Info("daemon started", "pid", os.Getpid(), "socket", cfg.Paths.Socket, "db", cfg.Paths.DB)
 	go d.loop(ctx)
+	go d.remindLoop(ctx)
 	err = d.server.Serve(ctx, ln)
 	log.Info("daemon stopped")
 	return err

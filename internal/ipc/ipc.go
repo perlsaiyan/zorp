@@ -112,7 +112,8 @@ const (
 )
 
 type RespondParams struct {
-	GraphID string `json:"graph_id"` // the meeting message
+	GraphID string `json:"graph_id,omitempty"` // the meeting message, or:
+	EventID string `json:"event_id,omitempty"` // the event, answered from the calendar (nothing is archived)
 	Answer  string `json:"answer"`
 	Comment string `json:"comment,omitempty"`
 	Send    bool   `json:"send,omitempty"` // tell the organizer

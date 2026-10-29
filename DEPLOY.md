@@ -96,7 +96,7 @@ Pick a colour that suits the theme. The module is hidden while nothing else is o
 
 ## 7. Check it
 
-- `zorp notify-test` should show a mako notification. Clicking it runs `zorp-focus`.
+- `zorp notify-test` should show a mako notification. Clicking it runs `zorp-focus`. Meeting reminders come the same way, 10 minutes before (`calendar.remind`); clicking one opens the meeting's Teams or Zoom link in the browser.
   - If the notification shows but clicking does nothing, mako may not invoke the default action on click. Check `on-button-left=invoke-default-action` in mako's config.
   - If `zorp-focus` can't reach Hyprland from the service, run `systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE`. Omarchy's uwsm session normally exports these already.
 - In zorp, the cursor row and selected rows (Space) should be soft colour tints, not reverse video. If they aren't, set `ui.color = "tint"`.
