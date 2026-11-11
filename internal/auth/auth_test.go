@@ -3,12 +3,17 @@ package auth
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/cache"
+	msalerrors "github.com/AzureAD/microsoft-authentication-library-for-go/apps/errors"
 )
 
 type bytesMarshaler []byte
@@ -67,5 +72,31 @@ func TestExplain(t *testing.T) {
 	plain := errors.New("something else")
 	if got := Explain(plain); got != plain {
 		t.Errorf("unknown error was rewrapped: %v", got)
+	}
+}
+
+func TestSilentErr(t *testing.T) {
+	ctx := context.Background()
+	timeout := fmt.Errorf("server response error:\n %w", &url.Error{Op: "Post", URL: "https://login.microsoftonline.com", Err: context.DeadlineExceeded})
+	refused := msalerrors.CallErr{Resp: &http.Response{StatusCode: 400}, Err: errors.New("AADSTS70043: the refresh token has expired")}
+	busy := msalerrors.CallErr{Resp: &http.Response{StatusCode: 503}, Err: errors.New("service unavailable")}
+	for _, tc := range []struct {
+		name  string
+		err   error
+		login bool
+	}{
+		{"network timeout", timeout, false},
+		{"Entra unavailable", busy, false},
+		{"refresh token refused", refused, true},
+		{"nothing cached", errors.New("no token found"), true},
+	} {
+		err := silentErr(ctx, tc.err)
+		if got := errors.Is(err, ErrNeedsLogin); got != tc.login {
+			t.Errorf("%s: needs login = %v, want %v (%v)", tc.name, got, tc.login, err)
+		}
+		var ne net.Error
+		if !tc.login && !errors.As(err, &ne) && !errors.As(err, &msalerrors.CallErr{}) {
+			t.Errorf("%s: lost the cause: %v", tc.name, err)
+		}
 	}
 }

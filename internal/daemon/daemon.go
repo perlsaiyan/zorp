@@ -43,6 +43,7 @@ type daemon struct {
 	requests  chan syncRequest
 	kick      chan struct{} // run a sync soon, without waiting for a reply
 	flushKick chan struct{} // send queued changes to Graph soon
+	loginTry  time.Time     // when a sync was last tried while needing login (loop only)
 
 	mu                 sync.Mutex
 	status             ipc.Status
@@ -194,11 +195,18 @@ func (d *daemon) loop(ctx context.Context) {
 	}
 }
 
+// loginRetry is how often a sync is tried while the user needs to log in,
+// in case the refresh failed for a reason that has since gone away.
+const loginRetry = 10 * time.Minute
+
 // syncIfSignedIn is the background path: while the user needs to log in
 // there's no point hitting the network every interval.
 func (d *daemon) syncIfSignedIn(ctx context.Context) {
 	if d.getStatus().State == ipc.StateNeedsLogin {
-		return
+		if time.Since(d.loginTry) < loginRetry {
+			return
+		}
+		d.loginTry = time.Now()
 	}
 	if _, err := d.runSync(ctx, false, false); err == nil {
 		d.prefetchBodies(ctx)

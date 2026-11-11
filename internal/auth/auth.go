@@ -7,9 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
 	"os/exec"
 	"regexp"
 
+	msalerrors "github.com/AzureAD/microsoft-authentication-library-for-go/apps/errors"
 	"github.com/AzureAD/microsoft-authentication-library-for-go/apps/public"
 
 	"github.com/perlsaiyan/zorp/config"
@@ -180,12 +183,34 @@ func (a *Authenticator) token(ctx context.Context, scopes []string) (string, err
 	}
 	res, err := a.client.AcquireTokenSilent(ctx, scopes, public.WithSilentAccount(acct))
 	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		return "", fmt.Errorf("%w: %v", ErrNeedsLogin, Explain(err))
+		return "", silentErr(ctx, err)
 	}
 	return res.AccessToken, nil
+}
+
+// silentErr says why a silent token request failed. Only a refusal from
+// Entra means signing in again; the network being down (say, just after
+// resume) or Entra having trouble is worth waiting out.
+func silentErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if transient(err) {
+		return fmt.Errorf("refreshing the sign-in: %w", err)
+	}
+	return fmt.Errorf("%w: %v", ErrNeedsLogin, Explain(err))
+}
+
+func transient(err error) bool {
+	var ne net.Error
+	if errors.As(err, &ne) {
+		return true
+	}
+	var ce msalerrors.CallErr
+	if errors.As(err, &ce) && ce.Resp != nil {
+		return ce.Resp.StatusCode == http.StatusTooManyRequests || ce.Resp.StatusCode >= 500
+	}
+	return false
 }
 
 // GrantedScopes returns the scopes on a current access token, as Entra
@@ -197,7 +222,7 @@ func (a *Authenticator) GrantedScopes(ctx context.Context) ([]string, error) {
 	}
 	res, err := a.client.AcquireTokenSilent(ctx, Scopes, public.WithSilentAccount(acct))
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrNeedsLogin, Explain(err))
+		return nil, silentErr(ctx, err)
 	}
 	return res.GrantedScopes, nil
 }
