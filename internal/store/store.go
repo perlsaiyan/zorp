@@ -266,4 +266,9 @@ CREATE TABLE calendar_sync (
 	`
 UPDATE calendar_sync SET delta_link = '';
 `,
+	// 10: join links are also found in a meeting's location and
+	// description (Zoom, Meet, Webex); a fresh pass fills them in.
+	`
+UPDATE calendar_sync SET delta_link = '';
+`,
 }

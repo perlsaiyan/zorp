@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -83,7 +85,7 @@ type Event struct {
 		JoinURL string `json:"joinUrl"`
 	} `json:"onlineMeeting"`
 	IsOnlineMeeting bool      `json:"isOnlineMeeting"`
-	Body            *ItemBody `json:"body"` // only when asked for (EventForEdit)
+	Body            *ItemBody `json:"body"` // for finding a join link, and for editing
 
 	// Removed is set on delta items for events that left the window.
 	Removed *struct {
@@ -91,15 +93,62 @@ type Event struct {
 	} `json:"@removed"`
 }
 
-// JoinURL is the Teams (or other online meeting) link, if any.
+// JoinURL is the Teams (or other online meeting) link, if any. Graph only
+// knows Teams and Skype meetings itself; for others (Zoom, Google Meet,
+// Webex) the link is looked for in the location, then the description.
 func (e *Event) JoinURL() string {
-	if e.OnlineMeeting == nil {
-		return ""
+	if e.OnlineMeeting != nil && e.OnlineMeeting.JoinURL != "" {
+		return e.OnlineMeeting.JoinURL
 	}
-	return e.OnlineMeeting.JoinURL
+	if u := FindJoinURL(e.Location.DisplayName); u != "" {
+		return u
+	}
+	if e.Body != nil {
+		return FindJoinURL(e.Body.Content)
+	}
+	return ""
 }
 
-const eventSelect = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,responseRequested,responseStatus,location,organizer,onlineMeeting"
+var (
+	linkRe = regexp.MustCompile(`https?://[^\s"'<>()\[\]]+`)
+	// joinRes are meeting links that join a particular meeting, not a
+	// service's front page.
+	joinRes = []*regexp.Regexp{
+		regexp.MustCompile(`^https://([\w-]+\.)*zoom\.us/(j|my|w)/[\w.-]+`),
+		regexp.MustCompile(`^https://([\w-]+\.)*zoomgov\.com/(j|my|w)/[\w.-]+`),
+		regexp.MustCompile(`^https://meet\.google\.com/[a-z]{3,}-[a-z]{3,}-[a-z]{3,}`),
+		regexp.MustCompile(`^https://teams\.(microsoft|live)\.com/(l/meetup-join|meet)/`),
+		regexp.MustCompile(`^https://[\w-]+\.webex\.com/([\w-]+/)?(j\.php|join|meet|wbxmjs)`),
+		regexp.MustCompile(`^https://(global\.gotomeeting\.com/join|meet\.goto\.com)/\w+`),
+		regexp.MustCompile(`^https://chime\.aws/\d+`),
+		regexp.MustCompile(`^https://whereby\.com/[\w-]+`),
+	}
+)
+
+// FindJoinURL returns the first link in s (text or HTML) that joins an
+// online meeting, looking inside Google's and Outlook's redirect links
+// too, or "".
+func FindJoinURL(s string) string {
+	for _, l := range linkRe.FindAllString(html.UnescapeString(s), -1) {
+		l = strings.TrimRight(l, ".,;:!?")
+		if u, err := url.Parse(l); err == nil {
+			switch {
+			case strings.HasSuffix(u.Host, "google.com") && u.Path == "/url":
+				l = u.Query().Get("q")
+			case strings.HasSuffix(u.Host, ".safelinks.protection.outlook.com"):
+				l = u.Query().Get("url")
+			}
+		}
+		for _, re := range joinRes {
+			if re.MatchString(l) {
+				return l
+			}
+		}
+	}
+	return ""
+}
+
+const eventSelect = "id,subject,start,end,isAllDay,isCancelled,isOrganizer,responseRequested,responseStatus,location,organizer,onlineMeeting,body"
 
 // TodayEventCount counts today's events (local time): a calendar access
 // check for `zorp probe`.
